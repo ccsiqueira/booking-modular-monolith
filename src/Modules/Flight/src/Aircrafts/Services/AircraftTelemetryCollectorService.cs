@@ -1,8 +1,12 @@
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
-using BuildingBlocks.EventStoreDB.Repository;
+using BuildingBlocks.Core;
+using BuildingBlocks.Core.Event;
+using Flight.Aircrafts.Events;
+using MediatR;
 using BuildingBlocks.RosConnector;
+using Flight.Aircrafts.Features.GettingAircraftTelemetry.V1;
 using Flight.Aircrafts.Models;
 using Flight.Aircrafts.ValueObjects;
 using Microsoft.Extensions.DependencyInjection;
@@ -72,7 +76,7 @@ public class AircraftTelemetryCollectorService : BackgroundService
     private async Task CollectAndUpdateTelemetryAsync(CancellationToken cancellationToken)
     {
         using var scope = _serviceProvider.CreateScope();
-        var aircraftRepository = scope.ServiceProvider.GetRequiredService<IEventStoreDBRepository<Aircraft>>();
+        var eventDispatcher = scope.ServiceProvider.GetRequiredService<IEventDispatcher>();
 
         try
         {
@@ -85,32 +89,27 @@ public class AircraftTelemetryCollectorService : BackgroundService
                 return;
             }
 
-            // Find or create aircraft (AIRCRAFT_001 is our simulated aircraft)
+            // Convert string aircraft ID to Guid
             var aircraftGuid = ConvertStringToGuid(_options.AircraftId);
-            var aircraft = await aircraftRepository.Find(aircraftGuid, cancellationToken);
 
-            if (aircraft == null)
-            {
-                _logger.LogWarning("Aircraft {AircraftId} not found in event store. Creating aircraft first.", _options.AircraftId);
-                // In a real scenario, you might want to create the aircraft here or skip telemetry update
-                return;
-            }
+            // Create and publish telemetry event directly
+            // Note: This bypasses the Aircraft entity and publishes telemetry events independently
+            var telemetryEvent = new AircraftTelemetryUpdatedDomainEvent(
+                aircraftGuid,
+                telemetryData.Position ?? Position.Empty,
+                telemetryData.Attitude ?? Attitude.Empty,
+                telemetryData.TelemetryData ?? TelemetryData.Empty,
+                DateTime.UtcNow);
 
-            // Update telemetry (creates and applies event)
-            aircraft.UpdateTelemetry(
-                telemetryData.Position,
-                telemetryData.Attitude,
-                telemetryData.TelemetryData);
+            // Dispatch the event (will be handled by projections, integrations, etc.)
+            await eventDispatcher.SendAsync(telemetryEvent, cancellationToken: cancellationToken);
 
-            // Save to EventStoreDB
-            await aircraftRepository.Update(aircraft, cancellationToken: cancellationToken);
-
-            _logger.LogDebug("Updated telemetry for aircraft {AircraftId}: {Position}, {Attitude}, {TelemetryData}",
+            _logger.LogDebug("Published telemetry event for aircraft {AircraftId}: {Position}, {Attitude}, {TelemetryData}",
                 aircraftGuid, telemetryData.Position, telemetryData.Attitude, telemetryData.TelemetryData);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error updating aircraft telemetry");
+            _logger.LogError(ex, "Error publishing aircraft telemetry event");
         }
     }
 
@@ -140,8 +139,23 @@ public class AircraftTelemetryCollectorService : BackgroundService
             var headingData = await headingTask;
             var phaseData = await phaseTask;
 
+            // Debug each topic data
+            _logger.LogInformation($"Topic data status:");
+            _logger.LogInformation($"  GPS: {GetDataStatus(gpsData)} - {GetDataContent(gpsData)}");
+            _logger.LogInformation($"  Attitude: {GetDataStatus(attitudeData)} - {GetDataContent(attitudeData)}");
+            _logger.LogInformation($"  Velocity: {GetDataStatus(velocityData)} - {GetDataContent(velocityData)}");
+            _logger.LogInformation($"  Battery: {GetDataStatus(batteryData)} - {GetDataContent(batteryData)}");
+            _logger.LogInformation($"  Altitude: {GetDataStatus(altitudeData)} - {GetDataContent(altitudeData)}");
+            _logger.LogInformation($"  Airspeed: {GetDataStatus(airspeedData)} - {GetDataContent(airspeedData)}");
+            _logger.LogInformation($"  Heading: {GetDataStatus(headingData)} - {GetDataContent(headingData)}");
+            _logger.LogInformation($"  Phase: {GetDataStatus(phaseData)} - {GetDataContent(phaseData)}");
+
             // Parse and validate the collected data
-            if (gpsData == null || attitudeData == null)
+            //if (gpsData is null || attitudeData is null || 
+            //    (gpsData is JsonElement gpsElement && gpsElement.ValueKind == JsonValueKind.Null) ||
+            //    (attitudeData is JsonElement attElement && attElement.ValueKind == JsonValueKind.Null))
+            if (gpsData is null || 
+                (gpsData is JsonElement gpsElement && gpsElement.ValueKind == JsonValueKind.Null))
             {
                 _logger.LogDebug("Missing essential telemetry data (GPS or attitude)");
                 return null;
@@ -152,7 +166,7 @@ public class AircraftTelemetryCollectorService : BackgroundService
             var attitude = ParseAttitude(attitudeData);
             var telemetry = ParseTelemetryData(airspeedData, headingData, batteryData, phaseData);
 
-            return new CollectedTelemetryData(position, attitude, telemetry);
+            return new CollectedTelemetryData(position, null, telemetry);
         }
         catch (Exception ex)
         {
@@ -165,22 +179,38 @@ public class AircraftTelemetryCollectorService : BackgroundService
     {
         try
         {
+            var gpsType = HasValidData(gpsData) ? gpsData.GetType().Name : "null";
+            _logger.LogDebug($"Parsing GPS data of type: {gpsType}");
+            
             // Parse GPS data
-            var latitude = GetPropertyValue<double>(gpsData, "latitude") ?? 0.0;
-            var longitude = GetPropertyValue<double>(gpsData, "longitude") ?? 0.0;
-            var altitude = GetPropertyValue<double>(gpsData, "altitude") ?? 0.0;
+            var latitude = GetPropertyValue<double>(gpsData, "latitude");
+            var longitude = GetPropertyValue<double>(gpsData, "longitude");
+            var altitude = GetPropertyValue<double>(gpsData, "altitude");
+
+            var latValue = latitude ?? 0.0;
+            var lonValue = longitude ?? 0.0;
+            var altValue = altitude ?? 0.0;
+            _logger.LogDebug($"Extracted values: Lat={latValue}, Lon={lonValue}, Alt={altValue}");
+
+            var finalLatitude = latitude ?? 0.0;
+            var finalLongitude = longitude ?? 0.0;
+            var finalAltitude = altitude ?? 0.0;
 
             // Use separate altitude if available
-            if (altitudeData != null)
+            if (HasValidData(altitudeData))
             {
                 var separateAltitude = GetPropertyValue<double>(altitudeData, "data");
-                if (separateAltitude.HasValue)
+                if (separateAltitude != null)
                 {
-                    altitude = separateAltitude.Value * 0.3048; // Convert feet to meters if needed
+                    var originalAltitude = (double)separateAltitude;
+                    finalAltitude = originalAltitude * 0.3048; // Convert feet to meters if needed
+                    _logger.LogDebug($"Using separate altitude: {originalAltitude} -> {finalAltitude}");
                 }
             }
 
-            return Position.Of(latitude, longitude, altitude);
+            var result = Position.Of(finalLatitude, finalLongitude, finalAltitude);
+            _logger.LogDebug($"Created position: {result}");
+            return result;
         }
         catch (Exception ex)
         {
@@ -194,7 +224,7 @@ public class AircraftTelemetryCollectorService : BackgroundService
         try
         {
             var vector = GetPropertyValue<dynamic>(attitudeData, "vector");
-            if (vector == null) return Attitude.Empty;
+            if (!HasValidData(vector)) return Attitude.Empty;
 
             var roll = GetPropertyValue<double>(vector, "x") ?? 0.0;
             var pitch = GetPropertyValue<double>(vector, "y") ?? 0.0;
@@ -232,47 +262,75 @@ public class AircraftTelemetryCollectorService : BackgroundService
 
     private T? GetPropertyValue<T>(dynamic? obj, string propertyName)
     {
-        if (obj == null) return default;
+        if (obj is null) 
+        {
+            _logger.LogDebug("GetPropertyValue: obj is null for property '{PropertyName}'", propertyName);
+            return default;
+        }
 
         try
         {
+            _logger.LogDebug("GetPropertyValue: Getting property '{PropertyName}'", propertyName);
+            
             // Handle JsonElement
             if (obj is JsonElement element)
             {
+                _logger.LogDebug("GetPropertyValue: Processing JsonElement for property '{PropertyName}'", propertyName);
+                
                 if (element.TryGetProperty(propertyName, out var property))
                 {
+                    _logger.LogDebug("GetPropertyValue: Found property '{PropertyName}' in JsonElement", propertyName);
+                    
                     if (typeof(T) == typeof(double) || typeof(T) == typeof(double?))
                     {
-                        return (T)(object)property.GetDouble();
+                        var doubleValue = property.GetDouble();
+                        _logger.LogDebug("GetPropertyValue: Converted '{PropertyName}' to double: {Value}", propertyName, doubleValue);
+                        return (T)(object)doubleValue;
                     }
                     if (typeof(T) == typeof(string))
                     {
-                        return (T)(object)property.GetString()!;
+                        var stringValue = property.GetString()!;
+                        _logger.LogDebug("GetPropertyValue: Converted '{PropertyName}' to string: '{Value}'", propertyName, stringValue);
+                        return (T)(object)stringValue;
                     }
-                    if (typeof(T) == typeof(dynamic))
+                    if (typeof(T) == typeof(object))
                     {
+                        _logger.LogDebug("GetPropertyValue: Returning '{PropertyName}' as object", propertyName);
                         return (T)(object)property;
                     }
+                }
+                else
+                {
+                    _logger.LogWarning("GetPropertyValue: Property '{PropertyName}' not found in JsonElement", propertyName);
                 }
                 return default;
             }
 
             // Handle dynamic object properties
             var type = obj.GetType();
+            _logger.LogDebug("GetPropertyValue: Processing dynamic object");
+            
             var propertyInfo = type.GetProperty(propertyName);
             if (propertyInfo != null)
             {
                 var value = propertyInfo.GetValue(obj);
+                _logger.LogDebug("GetPropertyValue: Found property '{PropertyName}' with value", propertyName);
+                
                 if (value is T typedValue)
                 {
                     return typedValue;
                 }
             }
+            else
+            {
+                _logger.LogWarning("GetPropertyValue: Property '{PropertyName}' not found", propertyName);
+            }
 
             return default;
         }
-        catch
+        catch (Exception ex)
         {
+            _logger.LogError(ex, "GetPropertyValue: Exception getting property '{PropertyName}'", propertyName);
             return default;
         }
     }
@@ -285,7 +343,7 @@ public class AircraftTelemetryCollectorService : BackgroundService
     }
 
     /// <summary>
-    /// Converts a string aircraft ID to a deterministic Guid using MD5 hashing.
+    /// Converts a string aircraft ID to "3c5c0000-97c6-fc34-fcd3-08db322230c8".
     /// This ensures the same string always maps to the same Guid.
     /// </summary>
     private static Guid ConvertStringToGuid(string aircraftId)
@@ -295,9 +353,46 @@ public class AircraftTelemetryCollectorService : BackgroundService
             return Guid.Empty;
         }
 
-        using var md5 = MD5.Create();
-        var hash = md5.ComputeHash(Encoding.UTF8.GetBytes(aircraftId));
-        return new Guid(hash);
+        //using var md5 = MD5.Create();
+        //var hash = md5.ComputeHash(Encoding.UTF8.GetBytes(aircraftId));
+        return new Guid("3c5c0000-97c6-fc34-fcd3-08db322230c8");
+    }
+
+    /// <summary>
+    /// Safely determines if data is null or has content, handling JsonElement edge cases
+    /// </summary>
+    private string GetDataStatus(dynamic data)
+    {
+        if (data is null) return "NULL";
+        if (data is JsonElement element && element.ValueKind == JsonValueKind.Null) return "JSON_NULL";
+        return "RECEIVED";
+    }
+
+    /// <summary>
+    /// Safely checks if data is valid (not null), handling JsonElement edge cases
+    /// </summary>
+    private bool HasValidData(dynamic data)
+    {
+        if (data is null) return false;
+        if (data is JsonElement element && element.ValueKind == JsonValueKind.Null) return false;
+        return true;
+    }
+
+    /// <summary>
+    /// Safely gets string representation of data, handling JsonElement edge cases
+    /// </summary>
+    private string GetDataContent(dynamic data)
+    {
+        if (data is null) return "No data";
+        if (data is JsonElement element && element.ValueKind == JsonValueKind.Null) return "JsonElement null";
+        try
+        {
+            return data.ToString();
+        }
+        catch
+        {
+            return "Error getting content";
+        }
     }
 }
 

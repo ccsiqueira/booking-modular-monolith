@@ -1,4 +1,5 @@
 using Flight.Aircrafts.Models;
+using Flight.Aircrafts.ValueObjects;
 using Flight.Airports.Models;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
@@ -33,6 +34,13 @@ public class FlightConfiguration : IEntityTypeConfiguration<Flights.Models.Fligh
             }
         );
 
+        // Configure AircraftId value object conversion
+        builder.Property(r => r.AircraftId)
+            .HasConversion<Guid>(
+                aircraftId => aircraftId.Value, 
+                dbId => AircraftId.Of(dbId));
+
+        // Configure foreign key relationship with Aircraft
         builder
             .HasOne<Aircraft>()
             .WithMany()

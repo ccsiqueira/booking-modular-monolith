@@ -5,8 +5,9 @@ using System.Threading;
 using System.Threading.Tasks;
 using Ardalis.GuardClauses;
 using BuildingBlocks.Core.CQRS;
-using BuildingBlocks.EventStoreDB.Repository;
+using Flight.Data;
 using BuildingBlocks.Web;
+using Microsoft.EntityFrameworkCore;
 using Duende.IdentityServer.EntityFramework.Entities;
 using Flight.Aircrafts.Exceptions;
 using Flight.Aircrafts.Models;
@@ -100,14 +101,14 @@ public class GetAircraftTelemetryValidator : AbstractValidator<GetAircraftTeleme
 
 internal class GetAircraftTelemetryHandler : IRequestHandler<GetAircraftTelemetry, GetAircraftTelemetryResult>
 {
-    private readonly IEventStoreDBRepository<Aircraft> _aircraftRepository;
+    private readonly FlightDbContext _flightDbContext;
     private readonly IMapper _mapper;
 
     public GetAircraftTelemetryHandler(
-        IEventStoreDBRepository<Aircraft> aircraftRepository,
+        FlightDbContext flightDbContext,
         IMapper mapper)
     {
-        _aircraftRepository = aircraftRepository;
+        _flightDbContext = flightDbContext;
         _mapper = mapper;
     }
 
@@ -115,42 +116,28 @@ internal class GetAircraftTelemetryHandler : IRequestHandler<GetAircraftTelemetr
     {
         Guard.Against.Null(request, nameof(request));
 
-        // Find aircraft in event store (reconstructed from events)
-        var aircraft = await _aircraftRepository.FindAsync(request.AircraftId, cancellationToken);
+        // Find aircraft in PostgreSQL database
+        var aircraft = await _flightDbContext.Aircraft
+            .FirstOrDefaultAsync(x => x.Id == request.AircraftId && !x.IsDeleted, cancellationToken);
 
         if (aircraft == null)
         {
             throw new AircraftNotFoundException(request.AircraftId.Value);
         }
 
-        // Map aircraft data to response DTO
+        // TODO: Telemetry data should come from EventStore events or cached projection
+        // For now, return basic aircraft info with empty telemetry
         var response = new AircraftTelemetryResponse
         {
             AircraftId = aircraft.Id.Value,
             Name = aircraft.Name.Value,
             Model = aircraft.Model.Value,
             ManufacturingYear = aircraft.ManufacturingYear.Value,
-            Position = aircraft.CurrentPosition != null ? new PositionDto
-            {
-                Latitude = aircraft.CurrentPosition.Latitude,
-                Longitude = aircraft.CurrentPosition.Longitude,
-                Altitude = aircraft.CurrentPosition.Altitude
-            } : null,
-            Attitude = aircraft.CurrentAttitude != null ? new AttitudeDto
-            {
-                Roll = aircraft.CurrentAttitude.Roll,
-                Pitch = aircraft.CurrentAttitude.Pitch,
-                Yaw = aircraft.CurrentAttitude.Yaw
-            } : null,
-            Telemetry = aircraft.CurrentTelemetry != null ? new TelemetryDto
-            {
-                Speed = aircraft.CurrentTelemetry.Speed,
-                Heading = aircraft.CurrentTelemetry.Heading,
-                FuelLevel = aircraft.CurrentTelemetry.FuelLevel,
-                FlightPhase = aircraft.CurrentTelemetry.FlightPhase
-            } : null,
-            LastUpdate = aircraft.LastTelemetryUpdate,
-            HasTelemetry = aircraft.CurrentPosition != null && aircraft.CurrentAttitude != null && aircraft.CurrentTelemetry != null
+            Position = null, // TODO: Get from telemetry events/projection
+            Attitude = null, // TODO: Get from telemetry events/projection  
+            Telemetry = null, // TODO: Get from telemetry events/projection
+            LastUpdate = null, // TODO: Get from telemetry events/projection
+            HasTelemetry = false // TODO: Will be true when telemetry is implemented
         };
 
         return new GetAircraftTelemetryResult(response);

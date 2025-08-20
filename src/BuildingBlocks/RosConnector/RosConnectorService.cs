@@ -121,11 +121,14 @@ public class RosConnectorService : IRosConnectorService, IDisposable
 
         try
         {
+            var messageType = GetMessageTypeForTopic(topicName);
+            _logger.LogInformation("📡 Subscribing to topic {TopicName} with type {MessageType}", topicName, messageType);
+
             var subscribeMessage = new
             {
                 op = "subscribe",
                 topic = topicName,
-                type = "sensor_msgs/NavSatFix" // Simplified - in real implementation, would need proper type handling
+                type = messageType // Use correct message type for each topic
             };
 
             var json = JsonSerializer.Serialize(subscribeMessage);
@@ -136,11 +139,30 @@ public class RosConnectorService : IRosConnectorService, IDisposable
                 WebSocketMessageType.Text,
                 true,
                 CancellationToken.None);
+
+            _logger.LogInformation("✅ Sent subscription request for {TopicName}", topicName);
         }
         catch (System.Exception ex)
         {
-            _logger.LogError(ex, "Error subscribing to topic {TopicName}", topicName);
+            _logger.LogError(ex, "❌ Error subscribing to topic {TopicName}", topicName);
         }
+    }
+
+    private string GetMessageTypeForTopic(string topicName)
+    {
+        // Map topic names to their exact ROS2 message types as confirmed by user
+        return topicName switch
+        {
+            "/aircraft/AIRCRAFT_001/gps" => "sensor_msgs/NavSatFix",
+            "/aircraft/AIRCRAFT_001/velocity" => "geometry_msgs/Twist", 
+            "/aircraft/AIRCRAFT_001/attitude" => "geometry_msgs/Vector3Stamped",
+            "/aircraft/AIRCRAFT_001/altitude" => "std_msgs/Float64",
+            "/aircraft/AIRCRAFT_001/airspeed" => "std_msgs/Float64",
+            "/aircraft/AIRCRAFT_001/heading" => "std_msgs/Float64",
+            "/aircraft/AIRCRAFT_001/battery" => "sensor_msgs/BatteryState",
+            "/aircraft/AIRCRAFT_001/flight_phase" => "std_msgs/String",
+            _ => "sensor_msgs/NavSatFix" // Default fallback for GPS
+        };
     }
 
     private async Task ListenForMessages()
@@ -188,7 +210,7 @@ public class RosConnectorService : IRosConnectorService, IDisposable
                     if (messageData != null)
                     {
                         _latestMessages.AddOrUpdate(topicName, messageData, (key, oldValue) => messageData);
-                        _logger.LogDebug("Received message from topic {TopicName}", topicName);
+                        _logger.LogInformation("📨 Received message from topic {TopicName}", topicName);
                     }
                 }
             }
