@@ -103,6 +103,6 @@ internal class CreateAircraftHandler : IRequestHandler<CreateAircraft, CreateAir
 
         var newAircraft = (await _flightDbContext.Aircraft.AddAsync(aircraftEntity, cancellationToken)).Entity;
 
-        return new CreateAircraftResult(newAircraft.Id);
+        return new CreateAircraftResult(AircraftId.Of(newAircraft.Id));
     }
 }

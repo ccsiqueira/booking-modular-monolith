@@ -40,7 +40,7 @@ public class RosConnectorService : IRosConnectorService, IDisposable
 
             return true;
         }
-        catch (Exception ex)
+        catch (System.Exception ex)
         {
             _logger.LogError(ex, "Failed to connect to ROS2 at {Uri}", rosUri);
             _isConnected = false;
@@ -88,7 +88,7 @@ public class RosConnectorService : IRosConnectorService, IDisposable
             _logger.LogWarning("Timeout waiting for data from topic {TopicName}", topicName);
             return null;
         }
-        catch (Exception ex)
+        catch (System.Exception ex)
         {
             _logger.LogError(ex, "Error getting data from topic {TopicName}", topicName);
             return null;
@@ -109,7 +109,7 @@ public class RosConnectorService : IRosConnectorService, IDisposable
             _isConnected = false;
             _logger.LogInformation("Disconnected from ROS2");
         }
-        catch (Exception ex)
+        catch (System.Exception ex)
         {
             _logger.LogError(ex, "Error disconnecting from ROS2");
         }
@@ -137,7 +137,7 @@ public class RosConnectorService : IRosConnectorService, IDisposable
                 true,
                 CancellationToken.None);
         }
-        catch (Exception ex)
+        catch (System.Exception ex)
         {
             _logger.LogError(ex, "Error subscribing to topic {TopicName}", topicName);
         }
@@ -164,7 +164,7 @@ public class RosConnectorService : IRosConnectorService, IDisposable
                 }
             }
         }
-        catch (Exception ex) when (!_cancellationTokenSource.Token.IsCancellationRequested)
+        catch (System.Exception ex) when (!_cancellationTokenSource.Token.IsCancellationRequested)
         {
             _logger.LogError(ex, "Error listening for ROS2 messages");
             _isConnected = false;
@@ -193,7 +193,7 @@ public class RosConnectorService : IRosConnectorService, IDisposable
                 }
             }
         }
-        catch (Exception ex)
+        catch (System.Exception ex)
         {
             _logger.LogError(ex, "Error processing ROS2 message: {Message}", message);
         }

@@ -86,8 +86,8 @@ public class AircraftTelemetryCollectorService : BackgroundService
             }
 
             // Find or create aircraft (AIRCRAFT_001 is our simulated aircraft)
-            var aircraftId = AircraftId.Of(ConvertStringToGuid(_options.AircraftId));
-            var aircraft = await aircraftRepository.FindAsync(aircraftId, cancellationToken);
+            var aircraftGuid = ConvertStringToGuid(_options.AircraftId);
+            var aircraft = await aircraftRepository.Find(aircraftGuid, cancellationToken);
 
             if (aircraft == null)
             {
@@ -103,10 +103,10 @@ public class AircraftTelemetryCollectorService : BackgroundService
                 telemetryData.TelemetryData);
 
             // Save to EventStoreDB
-            await aircraftRepository.SaveAsync(aircraft, cancellationToken);
+            await aircraftRepository.Update(aircraft, cancellationToken: cancellationToken);
 
             _logger.LogDebug("Updated telemetry for aircraft {AircraftId}: {Position}, {Attitude}, {TelemetryData}",
-                aircraftId.Value, telemetryData.Position, telemetryData.Attitude, telemetryData.TelemetryData);
+                aircraftGuid, telemetryData.Position, telemetryData.Attitude, telemetryData.TelemetryData);
         }
         catch (Exception ex)
         {
