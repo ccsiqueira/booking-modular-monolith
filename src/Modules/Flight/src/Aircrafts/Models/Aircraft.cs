@@ -14,8 +14,8 @@ public record Aircraft : Aggregate<AircraftId>
 
     public static Aircraft Create(AircraftId id, Name name, Model model, ManufacturingYear manufacturingYear, bool isDeleted = false)
     {
-        var aircraft = new Aircraft 
-        { 
+        var aircraft = new Aircraft
+        {
             Id = id,
             Name = name,
             Model = model,

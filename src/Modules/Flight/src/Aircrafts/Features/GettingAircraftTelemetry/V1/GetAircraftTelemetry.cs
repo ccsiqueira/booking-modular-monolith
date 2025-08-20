@@ -5,13 +5,12 @@ using System.Threading;
 using System.Threading.Tasks;
 using Ardalis.GuardClauses;
 using BuildingBlocks.Core.CQRS;
-using Flight.Data;
 using BuildingBlocks.Web;
-using Microsoft.EntityFrameworkCore;
 using Duende.IdentityServer.EntityFramework.Entities;
 using Flight.Aircrafts.Exceptions;
 using Flight.Aircrafts.Models;
 using Flight.Aircrafts.ValueObjects;
+using Flight.Data;
 using FluentValidation;
 using Mapster;
 using MapsterMapper;
@@ -19,6 +18,7 @@ using MediatR;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
+using Microsoft.EntityFrameworkCore;
 
 public record GetAircraftTelemetry(AircraftId AircraftId) : IQuery<GetAircraftTelemetryResult>;
 

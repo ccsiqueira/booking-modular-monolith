@@ -292,7 +292,7 @@ if (builder.ExecutionContext.IsPublishMode)
     elasticsearch.WithLifetime(ContainerLifetime.Persistent);
 }
 
-var kibana = builder.AddContainer("kibana", "kibana","8.17.0")
+var kibana = builder.AddContainer("kibana", "kibana", "8.17.0")
     .WithEnvironment("ELASTICSEARCH_HOSTS", "http://elasticsearch:9200")
     .WithEndpoint(port: 5601, targetPort: 5601, name: "http", isProxied: true, isExternal: true)
     .WithReference(elasticsearch)

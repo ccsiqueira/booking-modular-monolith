@@ -3,12 +3,12 @@ using System.Text;
 using System.Text.Json;
 using BuildingBlocks.Core;
 using BuildingBlocks.Core.Event;
-using Flight.Aircrafts.Events;
-using MediatR;
 using BuildingBlocks.RosConnector;
+using Flight.Aircrafts.Events;
 using Flight.Aircrafts.Features.GettingAircraftTelemetry.V1;
 using Flight.Aircrafts.Models;
 using Flight.Aircrafts.ValueObjects;
+using MediatR;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -154,7 +154,7 @@ public class AircraftTelemetryCollectorService : BackgroundService
             //if (gpsData is null || attitudeData is null || 
             //    (gpsData is JsonElement gpsElement && gpsElement.ValueKind == JsonValueKind.Null) ||
             //    (attitudeData is JsonElement attElement && attElement.ValueKind == JsonValueKind.Null))
-            if (gpsData is null || 
+            if (gpsData is null ||
                 (gpsData is JsonElement gpsElement && gpsElement.ValueKind == JsonValueKind.Null))
             {
                 _logger.LogDebug("Missing essential telemetry data (GPS or attitude)");
@@ -181,7 +181,7 @@ public class AircraftTelemetryCollectorService : BackgroundService
         {
             var gpsType = HasValidData(gpsData) ? gpsData.GetType().Name : "null";
             _logger.LogDebug($"Parsing GPS data of type: {gpsType}");
-            
+
             // Parse GPS data
             var latitude = GetPropertyValue<double>(gpsData, "latitude");
             var longitude = GetPropertyValue<double>(gpsData, "longitude");
@@ -262,7 +262,7 @@ public class AircraftTelemetryCollectorService : BackgroundService
 
     private T? GetPropertyValue<T>(dynamic? obj, string propertyName)
     {
-        if (obj is null) 
+        if (obj is null)
         {
             _logger.LogDebug("GetPropertyValue: obj is null for property '{PropertyName}'", propertyName);
             return default;
@@ -271,16 +271,16 @@ public class AircraftTelemetryCollectorService : BackgroundService
         try
         {
             _logger.LogDebug("GetPropertyValue: Getting property '{PropertyName}'", propertyName);
-            
+
             // Handle JsonElement
             if (obj is JsonElement element)
             {
                 _logger.LogDebug("GetPropertyValue: Processing JsonElement for property '{PropertyName}'", propertyName);
-                
+
                 if (element.TryGetProperty(propertyName, out var property))
                 {
                     _logger.LogDebug("GetPropertyValue: Found property '{PropertyName}' in JsonElement", propertyName);
-                    
+
                     if (typeof(T) == typeof(double) || typeof(T) == typeof(double?))
                     {
                         var doubleValue = property.GetDouble();
@@ -309,13 +309,13 @@ public class AircraftTelemetryCollectorService : BackgroundService
             // Handle dynamic object properties
             var type = obj.GetType();
             _logger.LogDebug("GetPropertyValue: Processing dynamic object");
-            
+
             var propertyInfo = type.GetProperty(propertyName);
             if (propertyInfo != null)
             {
                 var value = propertyInfo.GetValue(obj);
                 _logger.LogDebug("GetPropertyValue: Found property '{PropertyName}' with value", propertyName);
-                
+
                 if (value is T typedValue)
                 {
                     return typedValue;

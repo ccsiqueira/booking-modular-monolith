@@ -29,10 +29,10 @@ public static class InitialData
         var aircraftId1 = AircraftId.Of(new Guid("3c5c0000-97c6-fc34-fcd3-08db322230c8"));
         var aircraftId2 = AircraftId.Of(new Guid("3c5c0000-97c6-fc34-2e04-08db322230c9"));
         var aircraftId3 = AircraftId.Of(new Guid("3c5c0000-97c6-fc34-2e11-08db322230c9"));
-        
+
         var airportId1 = AirportId.Of(new Guid("3c5c0000-97c6-fc34-a0cb-08db322230c8"));
         var airportId2 = AirportId.Of(new Guid("3c5c0000-97c6-fc34-fc3c-08db322230c8"));
-        
+
         var flightId1 = FlightId.Of(new Guid("3c5c0000-97c6-fc34-2eb9-08db322230c9"));
 
         Airports = new List<Airport>

@@ -154,7 +154,7 @@ public class RosConnectorService : IRosConnectorService, IDisposable
         return topicName switch
         {
             "/aircraft/AIRCRAFT_001/gps" => "sensor_msgs/NavSatFix",
-            "/aircraft/AIRCRAFT_001/velocity" => "geometry_msgs/Twist", 
+            "/aircraft/AIRCRAFT_001/velocity" => "geometry_msgs/Twist",
             "/aircraft/AIRCRAFT_001/attitude" => "geometry_msgs/Vector3Stamped",
             "/aircraft/AIRCRAFT_001/altitude" => "std_msgs/Float64",
             "/aircraft/AIRCRAFT_001/airspeed" => "std_msgs/Float64",
