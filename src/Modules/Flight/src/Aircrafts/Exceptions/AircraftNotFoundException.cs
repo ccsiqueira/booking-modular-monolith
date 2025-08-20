@@ -1,4 +1,4 @@
-using SmartCharging.Infrastructure.Exceptions;
+using BuildingBlocks.Exception;
 
 namespace Flight.Aircrafts.Exceptions;
 

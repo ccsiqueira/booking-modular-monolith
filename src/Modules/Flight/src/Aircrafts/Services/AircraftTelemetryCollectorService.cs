@@ -1,3 +1,5 @@
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 using BuildingBlocks.EventStoreDB.Repository;
 using BuildingBlocks.RosConnector;
@@ -84,7 +86,7 @@ public class AircraftTelemetryCollectorService : BackgroundService
             }
 
             // Find or create aircraft (AIRCRAFT_001 is our simulated aircraft)
-            var aircraftId = AircraftId.Of(_options.AircraftId);
+            var aircraftId = AircraftId.Of(ConvertStringToGuid(_options.AircraftId));
             var aircraft = await aircraftRepository.FindAsync(aircraftId, cancellationToken);
 
             if (aircraft == null)
@@ -280,6 +282,22 @@ public class AircraftTelemetryCollectorService : BackgroundService
         _logger.LogInformation("Aircraft Telemetry Collector Service stopping...");
         await _rosConnector.DisconnectAsync();
         await base.StopAsync(cancellationToken);
+    }
+
+    /// <summary>
+    /// Converts a string aircraft ID to a deterministic Guid using MD5 hashing.
+    /// This ensures the same string always maps to the same Guid.
+    /// </summary>
+    private static Guid ConvertStringToGuid(string aircraftId)
+    {
+        if (string.IsNullOrWhiteSpace(aircraftId))
+        {
+            return Guid.Empty;
+        }
+
+        using var md5 = MD5.Create();
+        var hash = md5.ComputeHash(Encoding.UTF8.GetBytes(aircraftId));
+        return new Guid(hash);
     }
 }
 
