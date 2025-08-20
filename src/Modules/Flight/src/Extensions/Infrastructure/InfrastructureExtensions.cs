@@ -1,7 +1,10 @@
 using BuildingBlocks.EFCore;
+using BuildingBlocks.EventStoreDB;
 using BuildingBlocks.Mapster;
 using BuildingBlocks.Mongo;
+using BuildingBlocks.RosConnector;
 using BuildingBlocks.Web;
+using Flight.Aircrafts.Services;
 using Flight.Data;
 using Flight.Data.Seed;
 using Flight.GrpcServer.Services;
@@ -23,6 +26,20 @@ public static class InfrastructureExtensions
         builder.AddCustomDbContext<FlightDbContext>(nameof(Flight));
         builder.Services.AddScoped<IDataSeeder, FlightDataSeeder>();
         builder.AddMongoDbContext<FlightReadDbContext>();
+
+        // Add EventStore support for Aircraft telemetry events
+        builder.Services.AddEventStore(builder.Configuration, typeof(FlightRoot).Assembly)
+            .AddEventStoreDBSubscriptionToAll();
+
+        // Add ROS2 connector for aircraft telemetry
+        builder.Services.AddRosConnector(builder.Configuration);
+        
+        // Configure telemetry collector options
+        builder.Services.Configure<AircraftTelemetryCollectorOptions>(
+            builder.Configuration.GetSection(AircraftTelemetryCollectorOptions.SectionName));
+        
+        // Add always-on background service for telemetry collection
+        builder.Services.AddHostedService<AircraftTelemetryCollectorService>();
 
         builder.Services.AddCustomMediatR();
 
