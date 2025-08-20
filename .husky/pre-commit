@@ -1,2 +1,2 @@
-npm run format
-npm run ci-format
+#!/bin/sh
+powershell.exe -Command "npm run format; npm run ci-format"

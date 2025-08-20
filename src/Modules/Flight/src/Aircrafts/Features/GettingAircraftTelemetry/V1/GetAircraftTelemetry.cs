@@ -62,7 +62,7 @@ public class GetAircraftTelemetryEndpoint : IMinimalEndpoint
 {
     public IEndpointRouteBuilder MapEndpoint(IEndpointRouteBuilder builder)
     {
-        builder.MapGet($"{EndpointConfig.BaseApiPath}/flight/aircraft/{{aircraftId:guid}}/telemetry", 
+        builder.MapGet($"{EndpointConfig.BaseApiPath}/flight/aircraft/{{aircraftId:guid}}/telemetry",
                 async (Guid aircraftId, IMediator mediator, IMapper mapper, CancellationToken cancellationToken) =>
             {
                 var query = new GetAircraftTelemetry(AircraftId.Of(aircraftId));

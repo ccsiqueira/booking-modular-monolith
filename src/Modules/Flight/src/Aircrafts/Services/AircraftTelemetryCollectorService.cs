@@ -1,3 +1,4 @@
+using System.Text.Json;
 using BuildingBlocks.EventStoreDB.Repository;
 using BuildingBlocks.RosConnector;
 using Flight.Aircrafts.Models;
@@ -6,7 +7,6 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
-using System.Text.Json;
 
 namespace Flight.Aircrafts.Services;
 
@@ -53,7 +53,7 @@ public class AircraftTelemetryCollectorService : BackgroundService
                 }
 
                 await CollectAndUpdateTelemetryAsync(stoppingToken);
-                
+
                 // Wait for next collection cycle (1Hz frequency)
                 await Task.Delay(TimeSpan.FromSeconds(_options.CollectionIntervalSeconds), stoppingToken);
             }
@@ -76,7 +76,7 @@ public class AircraftTelemetryCollectorService : BackgroundService
         {
             // Collect telemetry data from ROS2 topics
             var telemetryData = await CollectTelemetryFromRosAsync();
-            
+
             if (telemetryData == null)
             {
                 _logger.LogDebug("No telemetry data received from ROS2");
@@ -103,7 +103,7 @@ public class AircraftTelemetryCollectorService : BackgroundService
             // Save to EventStoreDB
             await aircraftRepository.SaveAsync(aircraft, cancellationToken);
 
-            _logger.LogDebug("Updated telemetry for aircraft {AircraftId}: {Position}, {Attitude}, {TelemetryData}", 
+            _logger.LogDebug("Updated telemetry for aircraft {AircraftId}: {Position}, {Attitude}, {TelemetryData}",
                 aircraftId.Value, telemetryData.Position, telemetryData.Attitude, telemetryData.TelemetryData);
         }
         catch (Exception ex)
@@ -289,7 +289,7 @@ public record CollectedTelemetryData(Position Position, Attitude Attitude, Telem
 public class AircraftTelemetryCollectorOptions
 {
     public const string SectionName = "AircraftTelemetryCollector";
-    
+
     public string RosUri { get; set; } = "ws://localhost:9090";
     public string AircraftId { get; set; } = "AIRCRAFT_001"; // Default to our simulated aircraft
     public int CollectionIntervalSeconds { get; set; } = 1; // 1Hz frequency

@@ -1,0 +1,36 @@
+﻿syntax = "proto3";
+
+package operator;
+
+service OperatorGrpcService {
+
+  rpc GetById (GetByIdRequest) returns (GetOperatorByIdResult);
+}
+
+message GetByIdRequest {
+  string Id = 1;
+}
+
+message GetOperatorByIdResult {
+   OperatorResponse OperatorDto = 1;
+}
+
+message OperatorResponse {
+  string Id = 1;
+  string Name = 2;
+  string WarName = 3;
+  string RankName = 4;
+  int32 RankLevel = 5;
+  RankType RankType = 6;
+  string OrganizationName = 7;
+  string OrganizationCode = 8;
+}
+
+enum RankType {
+    RANK_TYPE_UNKNOWN = 0;
+    RANK_TYPE_ENLISTED = 1;
+    RANK_TYPE_NON_COMMISSIONED = 2;
+    RANK_TYPE_WARRANT_OFFICER = 3;
+    RANK_TYPE_OFFICER = 4;
+}
+

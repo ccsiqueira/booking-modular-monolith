@@ -1,14 +1,14 @@
-using Flight.Data;
 using BuildingBlocks.EventStoreDB.Events;
 using BuildingBlocks.EventStoreDB.Projections;
+using Flight.Data;
 using MediatR;
 using MongoDB.Driver;
 using MongoDB.Driver.Linq;
 
 namespace Flight;
 
-using Flight.Aircrafts.Features.CreatingAircraft.V1;
 using Flight.Aircrafts.Events;
+using Flight.Aircrafts.Features.CreatingAircraft.V1;
 using Flight.Aircrafts.Models;
 using MassTransit;
 

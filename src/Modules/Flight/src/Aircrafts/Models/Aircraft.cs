@@ -2,9 +2,9 @@ using BuildingBlocks.EventStoreDB.Events;
 
 namespace Flight.Aircrafts.Models;
 
+using Events;
 using Features.CreatingAircraft.V1;
 using ValueObjects;
-using Events;
 
 public record Aircraft : AggregateEventSourcing<AircraftId>
 {

@@ -33,11 +33,11 @@ public static class InfrastructureExtensions
 
         // Add ROS2 connector for aircraft telemetry
         builder.Services.AddRosConnector(builder.Configuration);
-        
+
         // Configure telemetry collector options
         builder.Services.Configure<AircraftTelemetryCollectorOptions>(
             builder.Configuration.GetSection(AircraftTelemetryCollectorOptions.SectionName));
-        
+
         // Add always-on background service for telemetry collection
         builder.Services.AddHostedService<AircraftTelemetryCollectorService>();
 

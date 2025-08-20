@@ -1,8 +1,8 @@
-using Microsoft.Extensions.Logging;
 using System.Collections.Concurrent;
 using System.Net.WebSockets;
 using System.Text;
 using System.Text.Json;
+using Microsoft.Extensions.Logging;
 
 namespace BuildingBlocks.RosConnector;
 
@@ -76,7 +76,7 @@ public class RosConnectorService : IRosConnectorService, IDisposable
                     {
                         return typedMessage;
                     }
-                    
+
                     // Try to convert from dynamic object to T
                     var json = JsonSerializer.Serialize(message);
                     return JsonSerializer.Deserialize<T>(json);
@@ -100,7 +100,7 @@ public class RosConnectorService : IRosConnectorService, IDisposable
         try
         {
             _cancellationTokenSource?.Cancel();
-            
+
             if (_webSocket?.State == WebSocketState.Open)
             {
                 await _webSocket.CloseAsync(WebSocketCloseStatus.NormalClosure, "Disconnecting", CancellationToken.None);
@@ -130,11 +130,11 @@ public class RosConnectorService : IRosConnectorService, IDisposable
 
             var json = JsonSerializer.Serialize(subscribeMessage);
             var bytes = Encoding.UTF8.GetBytes(json);
-            
+
             await _webSocket.SendAsync(
-                new ArraySegment<byte>(bytes), 
-                WebSocketMessageType.Text, 
-                true, 
+                new ArraySegment<byte>(bytes),
+                WebSocketMessageType.Text,
+                true,
                 CancellationToken.None);
         }
         catch (Exception ex)
@@ -154,7 +154,7 @@ public class RosConnectorService : IRosConnectorService, IDisposable
             while (_webSocket.State == WebSocketState.Open && !_cancellationTokenSource.Token.IsCancellationRequested)
             {
                 var result = await _webSocket.ReceiveAsync(
-                    new ArraySegment<byte>(buffer), 
+                    new ArraySegment<byte>(buffer),
                     _cancellationTokenSource.Token);
 
                 if (result.MessageType == WebSocketMessageType.Text)
@@ -176,7 +176,7 @@ public class RosConnectorService : IRosConnectorService, IDisposable
         try
         {
             var jsonDoc = JsonDocument.Parse(message);
-            
+
             if (jsonDoc.RootElement.TryGetProperty("topic", out var topicProperty) &&
                 jsonDoc.RootElement.TryGetProperty("msg", out var msgProperty))
             {

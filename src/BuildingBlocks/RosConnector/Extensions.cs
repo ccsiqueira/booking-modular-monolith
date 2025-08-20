@@ -10,7 +10,7 @@ public static class Extensions
     {
         services.Configure<RosConnectorOptions>(configuration.GetSection(RosConnectorOptions.SectionName));
         services.AddSingleton<IRosConnectorService, RosConnectorService>();
-        
+
         return services;
     }
 
@@ -18,7 +18,7 @@ public static class Extensions
     {
         services.Configure(configureOptions);
         services.AddSingleton<IRosConnectorService, RosConnectorService>();
-        
+
         return services;
     }
 }
