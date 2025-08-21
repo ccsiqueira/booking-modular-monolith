@@ -82,12 +82,12 @@ public class AircraftTelemetryCollectorService : BackgroundService
     private async Task CollectAndUpdateTelemetryAsync(CancellationToken cancellationToken)
     {
         using var scope = _serviceProvider.CreateScope();
-        
+
         try
         {
             var collectionStartTime = DateTime.UtcNow;
             _logger.LogInformation("🔄 Starting telemetry collection at: {Timestamp}", collectionStartTime);
-            
+
             // Collect telemetry data from ROS2 topics
             var telemetryData = await CollectTelemetryFromRosAsync();
 
@@ -104,7 +104,7 @@ public class AircraftTelemetryCollectorService : BackgroundService
 
             // Convert string aircraft ID to Guid
             var aircraftGuid = ConvertStringToGuid(_options.AircraftId);
-            _logger.LogInformation("🆔 Using Aircraft GUID: {AircraftGuid} for string ID: {StringId}", 
+            _logger.LogInformation("🆔 Using Aircraft GUID: {AircraftGuid} for string ID: {StringId}",
                 aircraftGuid, _options.AircraftId);
 
             // Option 2: Fallback to direct MongoDB update
@@ -159,7 +159,7 @@ public class AircraftTelemetryCollectorService : BackgroundService
         try
         {
             var flightReadDbContext = scope.ServiceProvider.GetRequiredService<FlightReadDbContext>();
-            
+
             var filter = Builders<AircraftReadModel>.Filter.And(
                 Builders<AircraftReadModel>.Filter.Eq(x => x.AircraftId, aircraftId),
                 Builders<AircraftReadModel>.Filter.Eq(x => x.IsDeleted, false)

@@ -11,14 +11,14 @@ using Dtos;
 using Exceptions;
 using MapsterMapper;
 using MediatR;
+using Microsoft.Extensions.Logging; // Added for logging
 using Models;
 using MongoDB.Driver;
 using MongoDB.Driver.Linq;
 using ValueObjects;
-using Microsoft.Extensions.Logging; // Added for logging
 
 public record UpdateAircraftTelemetryMongo(
-    Guid AircraftId, 
+    Guid AircraftId,
     TelemetryDto Telemetry
 ) : InternalCommand;
 
@@ -43,15 +43,15 @@ internal class UpdateAircraftTelemetryMongoHandler : ICommandHandler<UpdateAircr
         Guard.Against.Null(request, nameof(request));
 
         var handlerStartTime = DateTime.UtcNow;
-        _logger.LogInformation("🔄 UpdateAircraftTelemetryMongo handler started at: {Timestamp} for AircraftId: {AircraftId}", 
+        _logger.LogInformation("🔄 UpdateAircraftTelemetryMongo handler started at: {Timestamp} for AircraftId: {AircraftId}",
             handlerStartTime, request.AircraftId);
 
         _logger.LogInformation("📊 Updating MongoDB with telemetry data:");
-        _logger.LogInformation("  - Position: Lat={Lat}, Lon={Lon}, Alt={Alt}", 
+        _logger.LogInformation("  - Position: Lat={Lat}, Lon={Lon}, Alt={Alt}",
             request.Telemetry.Latitude, request.Telemetry.Longitude, request.Telemetry.Altitude);
-        _logger.LogInformation("  - Attitude: Roll={Roll}, Pitch={Pitch}, Yaw={Yaw}", 
+        _logger.LogInformation("  - Attitude: Roll={Roll}, Pitch={Pitch}, Yaw={Yaw}",
             request.Telemetry.Roll, request.Telemetry.Pitch, request.Telemetry.Yaw);
-        _logger.LogInformation("  - Telemetry: Speed={Speed}, Heading={Heading}, Fuel={Fuel}, Phase={Phase}", 
+        _logger.LogInformation("  - Telemetry: Speed={Speed}, Heading={Heading}, Fuel={Fuel}, Phase={Phase}",
             request.Telemetry.Speed, request.Telemetry.Heading, request.Telemetry.FuelLevel, request.Telemetry.FlightPhase);
         _logger.LogInformation("  - Timestamp: {Timestamp}", request.Telemetry.Timestamp);
 
@@ -73,7 +73,7 @@ internal class UpdateAircraftTelemetryMongoHandler : ICommandHandler<UpdateAircr
             .Set(x => x.FlightPhase, request.Telemetry.FlightPhase)
             .Set(x => x.LastTelemetryUpdate, request.Telemetry.Timestamp);
 
-        _logger.LogInformation("🔍 Executing MongoDB update with filter: AircraftId={AircraftId}, IsDeleted=false", 
+        _logger.LogInformation("🔍 Executing MongoDB update with filter: AircraftId={AircraftId}, IsDeleted=false",
             request.AircraftId);
 
         var result = await _flightReadDbContext.Aircraft.UpdateOneAsync(filter, update, cancellationToken: cancellationToken);
@@ -83,14 +83,14 @@ internal class UpdateAircraftTelemetryMongoHandler : ICommandHandler<UpdateAircr
 
         if (result.MatchedCount == 0)
         {
-            _logger.LogWarning("⚠️ No aircraft found in MongoDB for ID {AircraftId} (MatchedCount: {MatchedCount}, ModifiedCount: {ModifiedCount})", 
+            _logger.LogWarning("⚠️ No aircraft found in MongoDB for ID {AircraftId} (MatchedCount: {MatchedCount}, ModifiedCount: {ModifiedCount})",
                 request.AircraftId, result.MatchedCount, result.ModifiedCount);
             throw new AircraftNotFoundException(request.AircraftId);
         }
 
-        _logger.LogInformation("✅ MongoDB update completed successfully at: {Timestamp} (Duration: {Duration}ms)", 
+        _logger.LogInformation("✅ MongoDB update completed successfully at: {Timestamp} (Duration: {Duration}ms)",
             handlerEndTime, handlerDuration.TotalMilliseconds);
-        _logger.LogInformation("📊 Update result: MatchedCount={MatchedCount}, ModifiedCount={ModifiedCount}", 
+        _logger.LogInformation("📊 Update result: MatchedCount={MatchedCount}, ModifiedCount={ModifiedCount}",
             result.MatchedCount, result.ModifiedCount);
 
         return Unit.Value;

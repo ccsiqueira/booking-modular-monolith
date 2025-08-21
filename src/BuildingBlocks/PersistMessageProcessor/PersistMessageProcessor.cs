@@ -17,7 +17,7 @@ public class PersistMessageProcessor : IPersistMessageProcessor
     private readonly IMediator _mediator;
     private readonly IPersistMessageDbContext _persistMessageDbContext;
     private readonly IPublishEndpoint _publishEndpoint;
-    
+
     public PersistMessageProcessor(
         ILogger<PersistMessageProcessor> logger,
         IMediator mediator,

@@ -29,8 +29,8 @@ public class FlightProjection : IProjectionProcessor
             case AircraftCreatedDomainEvent aircraftCreatedDomainEvent:
                 await Apply(aircraftCreatedDomainEvent, cancellationToken);
                 break;
-            // AircraftTelemetryUpdatedDomainEvent is now handled by UpdateAircraftTelemetryMongo internal command
-            // No need to handle it here as it goes directly to MongoDB via internal command
+                // AircraftTelemetryUpdatedDomainEvent is now handled by UpdateAircraftTelemetryMongo internal command
+                // No need to handle it here as it goes directly to MongoDB via internal command
         }
     }
 

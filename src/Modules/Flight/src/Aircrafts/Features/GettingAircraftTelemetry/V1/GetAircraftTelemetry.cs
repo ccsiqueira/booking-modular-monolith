@@ -19,9 +19,9 @@ using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging; // Added for logging
 using MongoDB.Driver;
 using MongoDB.Driver.Linq;
-using Microsoft.Extensions.Logging; // Added for logging
 
 public record GetAircraftTelemetry(AircraftId AircraftId) : IQuery<GetAircraftTelemetryResult>;
 
@@ -179,13 +179,13 @@ internal class GetAircraftTelemetryHandler : IRequestHandler<GetAircraftTelemetr
         Guard.Against.Null(request, nameof(request));
 
         var handlerStartTime = DateTime.UtcNow;
-        _logger.LogInformation("🔍 Handler called at: {Timestamp} for AircraftId: {AircraftId}", 
+        _logger.LogInformation("🔍 Handler called at: {Timestamp} for AircraftId: {AircraftId}",
             handlerStartTime, request.AircraftId.Value);
 
         // Find aircraft in PostgreSQL database for static data
         var aircraft = await EntityFrameworkQueryableExtensions.FirstOrDefaultAsync(
             _flightDbContext.Aircraft.AsNoTracking(), // Already disabled EF Core caching
-            x => x.Id == request.AircraftId && !x.IsDeleted, 
+            x => x.Id == request.AircraftId && !x.IsDeleted,
             cancellationToken);
 
         if (aircraft == null)
@@ -193,7 +193,7 @@ internal class GetAircraftTelemetryHandler : IRequestHandler<GetAircraftTelemetr
             throw new AircraftNotFoundException(request.AircraftId.Value);
         }
 
-        _logger.LogInformation("📊 PostgreSQL Aircraft found: {Name} ({Model})", 
+        _logger.LogInformation("📊 PostgreSQL Aircraft found: {Name} ({Model})",
             aircraft.Name.Value, aircraft.Model.Value);
 
         // Get telemetry data from MongoDB read model (projection updated by ROS2 events)
@@ -203,7 +203,7 @@ internal class GetAircraftTelemetryHandler : IRequestHandler<GetAircraftTelemetr
         );
 
         // Log the MongoDB query for debugging
-        _logger.LogInformation("🔍 MongoDB Query Filter: AircraftId={AircraftId}, IsDeleted=false", 
+        _logger.LogInformation("🔍 MongoDB Query Filter: AircraftId={AircraftId}, IsDeleted=false",
             request.AircraftId.Value);
 
         var aircraftReadModel = await _flightReadDbContext.Aircraft
@@ -215,11 +215,11 @@ internal class GetAircraftTelemetryHandler : IRequestHandler<GetAircraftTelemetr
         {
             _logger.LogInformation("📊 MongoDB AircraftReadModel found:");
             _logger.LogInformation("  - LastTelemetryUpdate: {LastUpdate}", aircraftReadModel.LastTelemetryUpdate);
-            _logger.LogInformation("  - Position: Lat={Lat}, Lon={Lon}, Alt={Alt}", 
+            _logger.LogInformation("  - Position: Lat={Lat}, Lon={Lon}, Alt={Alt}",
                 aircraftReadModel.Latitude, aircraftReadModel.Longitude, aircraftReadModel.Altitude);
-            _logger.LogInformation("  - Attitude: Roll={Roll}, Pitch={Pitch}, Yaw={Yaw}", 
+            _logger.LogInformation("  - Attitude: Roll={Roll}, Pitch={Pitch}, Yaw={Yaw}",
                 aircraftReadModel.Roll, aircraftReadModel.Pitch, aircraftReadModel.Yaw);
-            _logger.LogInformation("  - Telemetry: Speed={Speed}, Heading={Heading}, Fuel={Fuel}, Phase={Phase}", 
+            _logger.LogInformation("  - Telemetry: Speed={Speed}, Heading={Heading}, Fuel={Fuel}, Phase={Phase}",
                 aircraftReadModel.Speed, aircraftReadModel.Heading, aircraftReadModel.FuelLevel, aircraftReadModel.FlightPhase);
         }
         else
@@ -232,7 +232,7 @@ internal class GetAircraftTelemetryHandler : IRequestHandler<GetAircraftTelemetr
         var currentTime = DateTime.UtcNow;
         var dataAge = hasTelemetry ? currentTime - aircraftReadModel!.LastTelemetryUpdate!.Value : TimeSpan.Zero;
 
-        _logger.LogInformation("⏰ Telemetry Data Age: {Age} (Current: {Current}, LastUpdate: {LastUpdate})", 
+        _logger.LogInformation("⏰ Telemetry Data Age: {Age} (Current: {Current}, LastUpdate: {LastUpdate})",
             dataAge, currentTime, aircraftReadModel?.LastTelemetryUpdate);
 
         // Build response with both static data (PostgreSQL) and live telemetry (MongoDB)
@@ -242,65 +242,65 @@ internal class GetAircraftTelemetryHandler : IRequestHandler<GetAircraftTelemetr
             Name = aircraft.Name.Value,
             Model = aircraft.Model.Value,
             ManufacturingYear = aircraft.ManufacturingYear.Value,
-            
+
             // Position data from ROS2 GPS topic
-            Position = hasTelemetry && HasValidPosition(aircraftReadModel) 
-                ? new PositionDto 
-                { 
+            Position = hasTelemetry && HasValidPosition(aircraftReadModel)
+                ? new PositionDto
+                {
                     Latitude = aircraftReadModel!.Latitude!.Value,
                     Longitude = aircraftReadModel.Longitude!.Value,
-                    Altitude = aircraftReadModel.Altitude!.Value 
+                    Altitude = aircraftReadModel.Altitude!.Value
                 }
                 : null,
-                
+
             // Attitude data from ROS2 attitude topic  
             Attitude = hasTelemetry && HasValidAttitude(aircraftReadModel)
-                ? new AttitudeDto 
-                { 
+                ? new AttitudeDto
+                {
                     Roll = aircraftReadModel!.Roll!.Value,
                     Pitch = aircraftReadModel.Pitch!.Value,
-                    Yaw = aircraftReadModel.Yaw!.Value 
+                    Yaw = aircraftReadModel.Yaw!.Value
                 }
                 : null,
-                
+
             // Flight telemetry from ROS2 topics (speed, heading, fuel, phase)
             Telemetry = hasTelemetry && HasValidTelemetry(aircraftReadModel)
-                ? new TelemetryDto 
-                { 
+                ? new TelemetryDto
+                {
                     Speed = aircraftReadModel!.Speed!.Value,
                     Heading = aircraftReadModel.Heading!.Value,
                     FuelLevel = aircraftReadModel.FuelLevel!.Value,
                     FlightPhase = aircraftReadModel.FlightPhase ?? "UNKNOWN"
                 }
                 : null,
-                
+
             LastUpdate = aircraftReadModel?.LastTelemetryUpdate,
             HasTelemetry = hasTelemetry
         };
 
         var handlerEndTime = DateTime.UtcNow;
         var handlerDuration = handlerEndTime - handlerStartTime;
-        
-        _logger.LogInformation("✅ Handler completed at: {Timestamp} (Duration: {Duration}ms)", 
+
+        _logger.LogInformation("✅ Handler completed at: {Timestamp} (Duration: {Duration}ms)",
             handlerEndTime, handlerDuration.TotalMilliseconds);
-        _logger.LogInformation("📤 Response: HasTelemetry={HasTelemetry}, LastUpdate={LastUpdate}, DataAge={DataAge}", 
+        _logger.LogInformation("📤 Response: HasTelemetry={HasTelemetry}, LastUpdate={LastUpdate}, DataAge={DataAge}",
             response.HasTelemetry, response.LastUpdate, dataAge);
 
         return new GetAircraftTelemetryResult(response);
     }
 
-    private static bool HasValidPosition(AircraftReadModel? model) => 
-        model?.Latitude.HasValue == true && 
-        model.Longitude.HasValue == true && 
+    private static bool HasValidPosition(AircraftReadModel? model) =>
+        model?.Latitude.HasValue == true &&
+        model.Longitude.HasValue == true &&
         model.Altitude.HasValue == true;
 
-    private static bool HasValidAttitude(AircraftReadModel? model) => 
-        model?.Roll.HasValue == true && 
-        model.Pitch.HasValue == true && 
+    private static bool HasValidAttitude(AircraftReadModel? model) =>
+        model?.Roll.HasValue == true &&
+        model.Pitch.HasValue == true &&
         model.Yaw.HasValue == true;
 
-    private static bool HasValidTelemetry(AircraftReadModel? model) => 
-        model?.Speed.HasValue == true && 
-        model.Heading.HasValue == true && 
+    private static bool HasValidTelemetry(AircraftReadModel? model) =>
+        model?.Speed.HasValue == true &&
+        model.Heading.HasValue == true &&
         model.FuelLevel.HasValue == true;
 }
