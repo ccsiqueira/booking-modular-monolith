@@ -1,15 +1,20 @@
 namespace Flight.Aircrafts.ValueObjects;
 
 using System;
+using System.Text.Json.Serialization;
 using Flight.Aircrafts.Exceptions;
 
 public record Attitude
 {
-    public double Roll { get; }  // Rotation around X-axis (degrees)
-    public double Pitch { get; } // Rotation around Y-axis (degrees)
-    public double Yaw { get; }   // Rotation around Z-axis (degrees)
+    public double Roll { get; init; }  // Rotation around X-axis (degrees)
+    public double Pitch { get; init; } // Rotation around Y-axis (degrees)
+    public double Yaw { get; init; }   // Rotation around Z-axis (degrees)
 
-    private Attitude(double roll, double pitch, double yaw)
+    // Default constructor for JSON serialization
+    public Attitude() { }
+
+    // Parameterized constructor for validation
+    public Attitude(double roll, double pitch, double yaw)
     {
         Roll = roll;
         Pitch = pitch;

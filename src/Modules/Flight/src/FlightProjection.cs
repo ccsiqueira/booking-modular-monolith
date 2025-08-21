@@ -29,9 +29,8 @@ public class FlightProjection : IProjectionProcessor
             case AircraftCreatedDomainEvent aircraftCreatedDomainEvent:
                 await Apply(aircraftCreatedDomainEvent, cancellationToken);
                 break;
-            case AircraftTelemetryUpdatedDomainEvent telemetryUpdatedDomainEvent:
-                await Apply(telemetryUpdatedDomainEvent, cancellationToken);
-                break;
+            // AircraftTelemetryUpdatedDomainEvent is now handled by UpdateAircraftTelemetryMongo internal command
+            // No need to handle it here as it goes directly to MongoDB via internal command
         }
     }
 
@@ -63,28 +62,5 @@ public class FlightProjection : IProjectionProcessor
 
             await _flightReadDbContext.Aircraft.InsertOneAsync(aircraftReadModel, cancellationToken: cancellationToken);
         }
-    }
-
-    private async Task Apply(AircraftTelemetryUpdatedDomainEvent @event, CancellationToken cancellationToken = default)
-    {
-        var filter = Builders<AircraftReadModel>.Filter.And(
-            Builders<AircraftReadModel>.Filter.Eq(x => x.AircraftId, @event.AircraftId),
-            Builders<AircraftReadModel>.Filter.Eq(x => x.IsDeleted, false)
-        );
-
-        var update = Builders<AircraftReadModel>.Update
-            .Set(x => x.Latitude, @event.Position.Latitude)
-            .Set(x => x.Longitude, @event.Position.Longitude)
-            .Set(x => x.Altitude, @event.Position.Altitude)
-            .Set(x => x.Roll, @event.Attitude.Roll)
-            .Set(x => x.Pitch, @event.Attitude.Pitch)
-            .Set(x => x.Yaw, @event.Attitude.Yaw)
-            .Set(x => x.Speed, @event.TelemetryData.Speed)
-            .Set(x => x.Heading, @event.TelemetryData.Heading)
-            .Set(x => x.FuelLevel, @event.TelemetryData.FuelLevel)
-            .Set(x => x.FlightPhase, @event.TelemetryData.FlightPhase)
-            .Set(x => x.LastTelemetryUpdate, @event.Timestamp);
-
-        await _flightReadDbContext.Aircraft.UpdateOneAsync(filter, update, cancellationToken: cancellationToken);
     }
 }

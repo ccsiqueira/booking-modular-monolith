@@ -1,16 +1,21 @@
 namespace Flight.Aircrafts.ValueObjects;
 
 using System;
+using System.Text.Json.Serialization;
 using Flight.Aircrafts.Exceptions;
 
 public record TelemetryData
 {
-    public double Speed { get; }        // Ground speed in knots
-    public double Heading { get; }      // Heading in degrees (0-360)
-    public double FuelLevel { get; }    // Fuel level percentage (0-100)
-    public string FlightPhase { get; }  // Current flight phase
+    public double Speed { get; init; }        // Ground speed in knots
+    public double Heading { get; init; }      // Heading in degrees (0-360)
+    public double FuelLevel { get; init; }    // Fuel level percentage (0-100)
+    public string FlightPhase { get; init; }  // Current flight phase
 
-    private TelemetryData(double speed, double heading, double fuelLevel, string flightPhase)
+    // Default constructor for JSON serialization
+    public TelemetryData() { }
+
+    // Parameterized constructor for validation
+    public TelemetryData(double speed, double heading, double fuelLevel, string flightPhase)
     {
         Speed = speed;
         Heading = heading;

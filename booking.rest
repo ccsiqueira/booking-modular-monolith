@@ -181,6 +181,15 @@ authorization: bearer {{Authenticate.response.body.access_token}}
 
 
 ###
+# @name Get_Aircraft_Telemetry_Debug
+GET {{booking-modular-monolith-api}}/api/v1/flight/aircraft/{{aircraftId}}/telemetry/debug
+accept: application/json
+Content-Type: application/json
+authorization: bearer {{Authenticate.response.body.access_token}}
+###
+
+
+###
 # @name Create_Aircraft
 POST {{booking-modular-monolith-api}}/api/v1/flight/aircraft
 accept: application/json

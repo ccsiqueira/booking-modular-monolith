@@ -4,9 +4,12 @@ using BuildingBlocks.Core.Event;
 
 namespace Flight;
 
+using Aircrafts.Dtos;
+using Aircrafts.Events;
 using Aircrafts.Features.CreatingAircraft.V1;
 using Aircrafts.ValueObjects;
 using Airports.Features.CreatingAirport.V1;
+using Flight.Aircrafts.Features.UpdatingAircraftTelemetry.V1;
 using Flights.Features.CreatingFlight.V1;
 using Flights.Features.DeletingFlight.V1;
 using Flights.Features.UpdatingFlight.V1;
@@ -42,6 +45,7 @@ public sealed class FlightEventMapper : IEventMapper
             FlightDeletedDomainEvent e => new DeleteFlightMongo(e.Id, e.FlightNumber, e.AircraftId, e.DepartureDate, e.DepartureAirportId,
                 e.ArriveDate, e.ArriveAirportId, e.DurationMinutes, e.FlightDate, e.Status, e.Price, e.IsDeleted),
             AircraftCreatedDomainEvent e => new CreateAircraftMongo(e.Id, e.Name, e.Model, e.ManufacturingYear, e.IsDeleted),
+            AircraftTelemetryUpdatedDomainEvent e => new UpdateAircraftTelemetryMongo(e.AircraftId, new TelemetryDto(e.Position, e.Attitude, e.TelemetryData, e.Timestamp)),
             AirportCreatedDomainEvent e => new CreateAirportMongo(e.Id, e.Name, e.Address, e.Code, e.IsDeleted),
             SeatCreatedDomainEvent e => new CreateSeatMongo(e.Id, e.SeatNumber, e.Type, e.Class, e.FlightId, e.IsDeleted),
             SeatReservedDomainEvent e => new ReserveSeatMongo(e.Id, e.SeatNumber, e.Type, e.Class, e.FlightId, e.IsDeleted),

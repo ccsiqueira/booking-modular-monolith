@@ -1,15 +1,20 @@
 namespace Flight.Aircrafts.ValueObjects;
 
 using System;
+using System.Text.Json.Serialization;
 using Flight.Aircrafts.Exceptions;
 
 public record Position
 {
-    public double Latitude { get; }
-    public double Longitude { get; }
-    public double Altitude { get; }
+    public double Latitude { get; init; }
+    public double Longitude { get; init; }
+    public double Altitude { get; init; }
 
-    private Position(double latitude, double longitude, double altitude)
+    // Default constructor for JSON serialization
+    public Position() { }
+
+    // Parameterized constructor for validation
+    public Position(double latitude, double longitude, double altitude)
     {
         Latitude = latitude;
         Longitude = longitude;

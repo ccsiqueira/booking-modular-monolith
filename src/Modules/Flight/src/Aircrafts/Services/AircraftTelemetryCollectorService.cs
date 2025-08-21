@@ -8,11 +8,13 @@ using Flight.Aircrafts.Events;
 using Flight.Aircrafts.Features.GettingAircraftTelemetry.V1;
 using Flight.Aircrafts.Models;
 using Flight.Aircrafts.ValueObjects;
+using Flight.Data;
 using MediatR;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using MongoDB.Driver;
 using RosSharp.RosBridgeClient.MessageTypes.Geometry;
 using RosSharp.RosBridgeClient.MessageTypes.Sensor;
 using RosSharp.RosBridgeClient.MessageTypes.Std;
@@ -80,10 +82,12 @@ public class AircraftTelemetryCollectorService : BackgroundService
     private async Task CollectAndUpdateTelemetryAsync(CancellationToken cancellationToken)
     {
         using var scope = _serviceProvider.CreateScope();
-        var eventDispatcher = scope.ServiceProvider.GetRequiredService<IEventDispatcher>();
-
+        
         try
         {
+            var collectionStartTime = DateTime.UtcNow;
+            _logger.LogInformation("🔄 Starting telemetry collection at: {Timestamp}", collectionStartTime);
+            
             // Collect telemetry data from ROS2 topics
             var telemetryData = await CollectTelemetryFromRosAsync();
 
@@ -93,27 +97,102 @@ public class AircraftTelemetryCollectorService : BackgroundService
                 return;
             }
 
+            _logger.LogInformation("📡 ROS2 telemetry collected successfully at: {Timestamp}", DateTime.UtcNow);
+            _logger.LogInformation("  - Position: {Position}", telemetryData.Position);
+            _logger.LogInformation("  - Attitude: {Attitude}", telemetryData.Attitude);
+            _logger.LogInformation("  - Telemetry: {Telemetry}", telemetryData.TelemetryData);
+
             // Convert string aircraft ID to Guid
             var aircraftGuid = ConvertStringToGuid(_options.AircraftId);
+            _logger.LogInformation("🆔 Using Aircraft GUID: {AircraftGuid} for string ID: {StringId}", 
+                aircraftGuid, _options.AircraftId);
 
-            // Create and publish telemetry event directly
-            // Note: This bypasses the Aircraft entity and publishes telemetry events independently
-            var telemetryEvent = new AircraftTelemetryUpdatedDomainEvent(
-                aircraftGuid,
-                telemetryData.Position ?? Position.Empty,
-                telemetryData.Attitude ?? Attitude.Empty,
-                telemetryData.TelemetryData ?? TelemetryData.Empty,
-                DateTime.UtcNow);
+            // Option 2: Fallback to direct MongoDB update
+            await UpdateMongoDbDirectly(scope, aircraftGuid, telemetryData, cancellationToken);
 
-            // Dispatch the event (will be handled by projections, integrations, etc.)
-            await eventDispatcher.SendAsync(telemetryEvent, cancellationToken: cancellationToken);
+            /*
+            // Option 1: Try to use EventDispatcher for internal command (preferred)
+            try
+            {
+                var eventDispatcher = scope.ServiceProvider.GetRequiredService<IEventDispatcher>();
+                
+                // Create and publish telemetry event
+                var telemetryEvent = new AircraftTelemetryUpdatedDomainEvent(
+                    aircraftGuid,
+                    telemetryData.Position ?? Position.Empty,
+                    telemetryData.Attitude ?? Attitude.Empty,
+                    telemetryData.TelemetryData ?? TelemetryData.Empty,
+                    DateTime.UtcNow);
 
-            _logger.LogDebug("Published telemetry event for aircraft {AircraftId}: {Position}, {Attitude}, {TelemetryData}",
-                aircraftGuid, telemetryData.Position, telemetryData.Attitude, telemetryData.TelemetryData);
+                _logger.LogInformation("📤 Dispatching AircraftTelemetryUpdatedDomainEvent via EventDispatcher");
+                _logger.LogInformation("  - Event Type: {EventType}", telemetryEvent.GetType().Name);
+                _logger.LogInformation("  - Timestamp: {Timestamp}", telemetryEvent.Timestamp);
+                _logger.LogInformation("  - Aircraft ID: {AircraftId}", telemetryEvent.AircraftId);
+
+                // Dispatch the event as internal command to update MongoDB
+                await eventDispatcher.SendAsync(telemetryEvent, typeof(IInternalCommand), cancellationToken: cancellationToken);
+
+                var dispatchEndTime = DateTime.UtcNow;
+                var dispatchDuration = dispatchEndTime - collectionStartTime;
+                
+                _logger.LogInformation("✅ Telemetry event dispatched successfully at: {Timestamp} (Total duration: {Duration}ms)", 
+                    dispatchEndTime, dispatchDuration.TotalMilliseconds);
+                _logger.LogInformation("📊 Event details: {Position}, {Attitude}, {TelemetryData}",
+                    telemetryData.Position, telemetryData.Attitude, telemetryData.TelemetryData);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "EventDispatcher failed, falling back to direct MongoDB update");
+                
+                // Option 2: Fallback to direct MongoDB update
+                await UpdateMongoDbDirectly(scope, aircraftGuid, telemetryData, cancellationToken);
+            }*/
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error publishing aircraft telemetry event");
+        }
+    }
+
+    private async Task UpdateMongoDbDirectly(IServiceScope scope, Guid aircraftId, CollectedTelemetryData telemetryData, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var flightReadDbContext = scope.ServiceProvider.GetRequiredService<FlightReadDbContext>();
+            
+            var filter = Builders<AircraftReadModel>.Filter.And(
+                Builders<AircraftReadModel>.Filter.Eq(x => x.AircraftId, aircraftId),
+                Builders<AircraftReadModel>.Filter.Eq(x => x.IsDeleted, false)
+            );
+
+            var update = Builders<AircraftReadModel>.Update
+                .Set(x => x.Latitude, telemetryData.Position?.Latitude)
+                .Set(x => x.Longitude, telemetryData.Position?.Longitude)
+                .Set(x => x.Altitude, telemetryData.Position?.Altitude)
+                .Set(x => x.Roll, telemetryData.Attitude?.Roll)
+                .Set(x => x.Pitch, telemetryData.Attitude?.Pitch)
+                .Set(x => x.Yaw, telemetryData.Attitude?.Yaw)
+                .Set(x => x.Speed, telemetryData.TelemetryData?.Speed)
+                .Set(x => x.Heading, telemetryData.TelemetryData?.Heading)
+                .Set(x => x.FuelLevel, telemetryData.TelemetryData?.FuelLevel)
+                .Set(x => x.FlightPhase, telemetryData.TelemetryData?.FlightPhase)
+                .Set(x => x.LastTelemetryUpdate, DateTime.UtcNow);
+
+            var result = await flightReadDbContext.Aircraft.UpdateOneAsync(filter, update, cancellationToken: cancellationToken);
+
+            if (result.MatchedCount == 0)
+            {
+                _logger.LogWarning("No aircraft found in MongoDB for ID {AircraftId}", aircraftId);
+            }
+            else
+            {
+                _logger.LogDebug("Directly updated MongoDB for aircraft {AircraftId}: {Position}, {Attitude}, {TelemetryData}",
+                    aircraftId, telemetryData.Position, telemetryData.Attitude, telemetryData.TelemetryData);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error updating MongoDB directly for aircraft {AircraftId}", aircraftId);
         }
     }
 
@@ -174,7 +253,7 @@ public class AircraftTelemetryCollectorService : BackgroundService
             var attitude = ParseAttitude(attitudeData);
             var telemetry = ParseTelemetryData(airspeedData, headingData, batteryData, phaseData);
 
-            return new CollectedTelemetryData(position, null, telemetry);
+            return new CollectedTelemetryData(position, attitude, telemetry);
         }
         catch (Exception ex)
         {
