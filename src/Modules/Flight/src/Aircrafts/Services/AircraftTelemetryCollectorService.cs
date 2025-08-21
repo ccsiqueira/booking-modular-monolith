@@ -13,6 +13,10 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using RosSharp.RosBridgeClient.MessageTypes.Geometry;
+using RosSharp.RosBridgeClient.MessageTypes.Sensor;
+using RosSharp.RosBridgeClient.MessageTypes.Std;
+using RosString = RosSharp.RosBridgeClient.MessageTypes.Std.String;
 
 namespace Flight.Aircrafts.Services;
 
@@ -117,15 +121,15 @@ public class AircraftTelemetryCollectorService : BackgroundService
     {
         try
         {
-            // Collect data from all ROS2 topics
-            var gpsTask = _rosConnector.GetLatestAsync<dynamic>("/aircraft/AIRCRAFT_001/gps");
-            var attitudeTask = _rosConnector.GetLatestAsync<dynamic>("/aircraft/AIRCRAFT_001/attitude");
-            var velocityTask = _rosConnector.GetLatestAsync<dynamic>("/aircraft/AIRCRAFT_001/velocity");
-            var batteryTask = _rosConnector.GetLatestAsync<dynamic>("/aircraft/AIRCRAFT_001/battery");
-            var altitudeTask = _rosConnector.GetLatestAsync<dynamic>("/aircraft/AIRCRAFT_001/altitude");
-            var airspeedTask = _rosConnector.GetLatestAsync<dynamic>("/aircraft/AIRCRAFT_001/airspeed");
-            var headingTask = _rosConnector.GetLatestAsync<dynamic>("/aircraft/AIRCRAFT_001/heading");
-            var phaseTask = _rosConnector.GetLatestAsync<dynamic>("/aircraft/AIRCRAFT_001/flight_phase");
+            // Collect data from all ROS2 topics using strongly-typed ROS# message classes
+            var gpsTask = _rosConnector.GetLatestAsync<NavSatFix>("/aircraft/AIRCRAFT_001/gps");
+            var attitudeTask = _rosConnector.GetLatestAsync<Vector3Stamped>("/aircraft/AIRCRAFT_001/attitude");
+            var velocityTask = _rosConnector.GetLatestAsync<Twist>("/aircraft/AIRCRAFT_001/velocity");
+            var batteryTask = _rosConnector.GetLatestAsync<BatteryState>("/aircraft/AIRCRAFT_001/battery");
+            var altitudeTask = _rosConnector.GetLatestAsync<Float64>("/aircraft/AIRCRAFT_001/altitude");
+            var airspeedTask = _rosConnector.GetLatestAsync<Float64>("/aircraft/AIRCRAFT_001/airspeed");
+            var headingTask = _rosConnector.GetLatestAsync<Float64>("/aircraft/AIRCRAFT_001/heading");
+            var phaseTask = _rosConnector.GetLatestAsync<RosString>("/aircraft/AIRCRAFT_001/flight_phase");
 
             // Wait for all data collection tasks
             await Task.WhenAll(gpsTask, attitudeTask, velocityTask, batteryTask, altitudeTask, airspeedTask, headingTask, phaseTask);
@@ -139,29 +143,33 @@ public class AircraftTelemetryCollectorService : BackgroundService
             var headingData = await headingTask;
             var phaseData = await phaseTask;
 
-            // Debug each topic data
-            _logger.LogInformation($"Topic data status:");
-            _logger.LogInformation($"  GPS: {GetDataStatus(gpsData)} - {GetDataContent(gpsData)}");
-            _logger.LogInformation($"  Attitude: {GetDataStatus(attitudeData)} - {GetDataContent(attitudeData)}");
-            _logger.LogInformation($"  Velocity: {GetDataStatus(velocityData)} - {GetDataContent(velocityData)}");
-            _logger.LogInformation($"  Battery: {GetDataStatus(batteryData)} - {GetDataContent(batteryData)}");
-            _logger.LogInformation($"  Altitude: {GetDataStatus(altitudeData)} - {GetDataContent(altitudeData)}");
-            _logger.LogInformation($"  Airspeed: {GetDataStatus(airspeedData)} - {GetDataContent(airspeedData)}");
-            _logger.LogInformation($"  Heading: {GetDataStatus(headingData)} - {GetDataContent(headingData)}");
-            _logger.LogInformation($"  Phase: {GetDataStatus(phaseData)} - {GetDataContent(phaseData)}");
+            // Debug each topic data with strongly-typed messages
+            _logger.LogInformation("📊 ROS# Topic data status:");
+            _logger.LogInformation("  GPS: {Status} - Lat: {Lat}, Lon: {Lon}, Alt: {Alt}",
+                GetDataStatus(gpsData), gpsData?.latitude, gpsData?.longitude, gpsData?.altitude);
+            _logger.LogInformation("  Attitude: {Status} - Roll: {Roll}, Pitch: {Pitch}, Yaw: {Yaw}",
+                GetDataStatus(attitudeData), attitudeData?.vector.x, attitudeData?.vector.y, attitudeData?.vector.z);
+            _logger.LogInformation("  Velocity: {Status} - Linear: ({X}, {Y}, {Z})",
+                GetDataStatus(velocityData), velocityData?.linear.x, velocityData?.linear.y, velocityData?.linear.z);
+            _logger.LogInformation("  Battery: {Status} - Percentage: {Percentage}%",
+                GetDataStatus(batteryData), batteryData?.percentage * 100);
+            _logger.LogInformation("  Altitude: {Status} - Value: {Value}",
+                GetDataStatus(altitudeData), altitudeData?.data);
+            _logger.LogInformation("  Airspeed: {Status} - Value: {Value}",
+                GetDataStatus(airspeedData), airspeedData?.data);
+            _logger.LogInformation("  Heading: {Status} - Value: {Value}",
+                GetDataStatus(headingData), headingData?.data);
+            _logger.LogInformation("  Phase: {Status} - Value: {Value}",
+                GetDataStatus(phaseData), phaseData?.data);
 
-            // Parse and validate the collected data
-            //if (gpsData is null || attitudeData is null || 
-            //    (gpsData is JsonElement gpsElement && gpsElement.ValueKind == JsonValueKind.Null) ||
-            //    (attitudeData is JsonElement attElement && attElement.ValueKind == JsonValueKind.Null))
-            if (gpsData is null ||
-                (gpsData is JsonElement gpsElement && gpsElement.ValueKind == JsonValueKind.Null))
+            // Parse and validate the collected data - now using strongly-typed messages
+            if (gpsData is null)
             {
-                _logger.LogDebug("Missing essential telemetry data (GPS or attitude)");
+                _logger.LogDebug("Missing essential telemetry data (GPS required)");
                 return null;
             }
 
-            // Convert dynamic objects to our value objects
+            // Convert strongly-typed ROS# messages to our value objects
             var position = ParsePosition(gpsData, altitudeData);
             var attitude = ParseAttitude(attitudeData);
             var telemetry = ParseTelemetryData(airspeedData, headingData, batteryData, phaseData);
@@ -175,165 +183,104 @@ public class AircraftTelemetryCollectorService : BackgroundService
         }
     }
 
-    private Position ParsePosition(dynamic gpsData, dynamic? altitudeData)
+    private Position ParsePosition(NavSatFix? gpsData, Float64? altitudeData)
     {
         try
         {
-            var gpsType = HasValidData(gpsData) ? gpsData.GetType().Name : "null";
-            _logger.LogDebug($"Parsing GPS data of type: {gpsType}");
-
-            // Parse GPS data
-            var latitude = GetPropertyValue<double>(gpsData, "latitude");
-            var longitude = GetPropertyValue<double>(gpsData, "longitude");
-            var altitude = GetPropertyValue<double>(gpsData, "altitude");
-
-            var latValue = latitude ?? 0.0;
-            var lonValue = longitude ?? 0.0;
-            var altValue = altitude ?? 0.0;
-            _logger.LogDebug($"Extracted values: Lat={latValue}, Lon={lonValue}, Alt={altValue}");
-
-            var finalLatitude = latitude ?? 0.0;
-            var finalLongitude = longitude ?? 0.0;
-            var finalAltitude = altitude ?? 0.0;
-
-            // Use separate altitude if available
-            if (HasValidData(altitudeData))
+            if (gpsData == null)
             {
-                var separateAltitude = GetPropertyValue<double>(altitudeData, "data");
-                if (separateAltitude != null)
-                {
-                    var originalAltitude = (double)separateAltitude;
-                    finalAltitude = originalAltitude * 0.3048; // Convert feet to meters if needed
-                    _logger.LogDebug($"Using separate altitude: {originalAltitude} -> {finalAltitude}");
-                }
+                _logger.LogDebug("GPS data is null, returning empty position");
+                return Position.Empty;
+            }
+
+            _logger.LogDebug("Parsing GPS data from ROS# NavSatFix message");
+
+            // Extract GPS coordinates directly from strongly-typed message
+            var latitude = gpsData.latitude;
+            var longitude = gpsData.longitude;
+            var altitude = gpsData.altitude;
+
+            _logger.LogDebug("Extracted GPS values: Lat={Lat}, Lon={Lon}, Alt={Alt}", latitude, longitude, altitude);
+
+            var finalLatitude = latitude;
+            var finalLongitude = longitude;
+            var finalAltitude = altitude;
+
+            // Use separate altitude if available (and convert feet to meters if needed)
+            if (altitudeData != null)
+            {
+                var separateAltitude = altitudeData.data;
+                finalAltitude = separateAltitude * 0.3048; // Convert feet to meters
+                _logger.LogDebug("Using separate altitude: {Original} ft -> {Converted} m", separateAltitude, finalAltitude);
             }
 
             var result = Position.Of(finalLatitude, finalLongitude, finalAltitude);
-            _logger.LogDebug($"Created position: {result}");
+            _logger.LogDebug("Created position: {Position}", result);
             return result;
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error parsing position data");
+            _logger.LogError(ex, "Error parsing position data from ROS# messages");
             return Position.Empty;
         }
     }
 
-    private Attitude ParseAttitude(dynamic attitudeData)
+    private Attitude ParseAttitude(Vector3Stamped? attitudeData)
     {
         try
         {
-            var vector = GetPropertyValue<dynamic>(attitudeData, "vector");
-            if (!HasValidData(vector)) return Attitude.Empty;
+            if (attitudeData?.vector == null)
+            {
+                _logger.LogDebug("Attitude data is null, returning empty attitude");
+                return Attitude.Empty;
+            }
 
-            var roll = GetPropertyValue<double>(vector, "x") ?? 0.0;
-            var pitch = GetPropertyValue<double>(vector, "y") ?? 0.0;
-            var yaw = GetPropertyValue<double>(vector, "z") ?? 0.0;
+            _logger.LogDebug("Parsing attitude data from ROS# Vector3Stamped message");
+
+            // Extract attitude values directly from strongly-typed message
+            var roll = attitudeData.vector.x;
+            var pitch = attitudeData.vector.y;
+            var yaw = attitudeData.vector.z;
+
+            _logger.LogDebug("Extracted attitude values: Roll={Roll}, Pitch={Pitch}, Yaw={Yaw}", roll, pitch, yaw);
 
             return Attitude.Of(roll, pitch, yaw);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error parsing attitude data");
+            _logger.LogError(ex, "Error parsing attitude data from ROS# message");
             return Attitude.Empty;
         }
     }
 
-    private TelemetryData ParseTelemetryData(dynamic? airspeedData, dynamic? headingData, dynamic? batteryData, dynamic? phaseData)
+    private TelemetryData ParseTelemetryData(Float64? airspeedData, Float64? headingData, BatteryState? batteryData, RosString? phaseData)
     {
         try
         {
-            var speed = GetPropertyValue<double>(airspeedData, "data") ?? 0.0;
-            var heading = GetPropertyValue<double>(headingData, "data") ?? 0.0;
-            var fuelLevel = GetPropertyValue<double>(batteryData, "percentage") ?? 0.0;
-            var flightPhase = GetPropertyValue<string>(phaseData, "data") ?? "UNKNOWN";
+            _logger.LogDebug("Parsing telemetry data from ROS# messages");
+
+            // Extract values directly from strongly-typed messages
+            var speed = airspeedData?.data ?? 0.0;
+            var heading = headingData?.data ?? 0.0;
+            var fuelLevel = batteryData?.percentage ?? 0.0;
+            var flightPhase = phaseData?.data ?? "UNKNOWN";
 
             // Convert fuel percentage to 0-100 range if needed
             if (fuelLevel <= 1.0) fuelLevel *= 100.0;
+
+            _logger.LogDebug("Extracted telemetry values: Speed={Speed}, Heading={Heading}, Fuel={Fuel}%, Phase={Phase}",
+                speed, heading, fuelLevel, flightPhase);
 
             return TelemetryData.Of(speed, heading, fuelLevel, flightPhase);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error parsing telemetry data");
+            _logger.LogError(ex, "Error parsing telemetry data from ROS# messages");
             return TelemetryData.Empty;
         }
     }
 
-    private T? GetPropertyValue<T>(dynamic? obj, string propertyName)
-    {
-        if (obj is null)
-        {
-            _logger.LogDebug("GetPropertyValue: obj is null for property '{PropertyName}'", propertyName);
-            return default;
-        }
 
-        try
-        {
-            _logger.LogDebug("GetPropertyValue: Getting property '{PropertyName}'", propertyName);
-
-            // Handle JsonElement
-            if (obj is JsonElement element)
-            {
-                _logger.LogDebug("GetPropertyValue: Processing JsonElement for property '{PropertyName}'", propertyName);
-
-                if (element.TryGetProperty(propertyName, out var property))
-                {
-                    _logger.LogDebug("GetPropertyValue: Found property '{PropertyName}' in JsonElement", propertyName);
-
-                    if (typeof(T) == typeof(double) || typeof(T) == typeof(double?))
-                    {
-                        var doubleValue = property.GetDouble();
-                        _logger.LogDebug("GetPropertyValue: Converted '{PropertyName}' to double: {Value}", propertyName, doubleValue);
-                        return (T)(object)doubleValue;
-                    }
-                    if (typeof(T) == typeof(string))
-                    {
-                        var stringValue = property.GetString()!;
-                        _logger.LogDebug("GetPropertyValue: Converted '{PropertyName}' to string: '{Value}'", propertyName, stringValue);
-                        return (T)(object)stringValue;
-                    }
-                    if (typeof(T) == typeof(object))
-                    {
-                        _logger.LogDebug("GetPropertyValue: Returning '{PropertyName}' as object", propertyName);
-                        return (T)(object)property;
-                    }
-                }
-                else
-                {
-                    _logger.LogWarning("GetPropertyValue: Property '{PropertyName}' not found in JsonElement", propertyName);
-                }
-                return default;
-            }
-
-            // Handle dynamic object properties
-            var type = obj.GetType();
-            _logger.LogDebug("GetPropertyValue: Processing dynamic object");
-
-            var propertyInfo = type.GetProperty(propertyName);
-            if (propertyInfo != null)
-            {
-                var value = propertyInfo.GetValue(obj);
-                _logger.LogDebug("GetPropertyValue: Found property '{PropertyName}' with value", propertyName);
-
-                if (value is T typedValue)
-                {
-                    return typedValue;
-                }
-            }
-            else
-            {
-                _logger.LogWarning("GetPropertyValue: Property '{PropertyName}' not found", propertyName);
-            }
-
-            return default;
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "GetPropertyValue: Exception getting property '{PropertyName}'", propertyName);
-            return default;
-        }
-    }
 
     public override async Task StopAsync(CancellationToken cancellationToken)
     {
@@ -359,40 +306,11 @@ public class AircraftTelemetryCollectorService : BackgroundService
     }
 
     /// <summary>
-    /// Safely determines if data is null or has content, handling JsonElement edge cases
+    /// Safely determines if ROS# message data is available
     /// </summary>
-    private string GetDataStatus(dynamic data)
+    private string GetDataStatus<T>(T? data) where T : class
     {
-        if (data is null) return "NULL";
-        if (data is JsonElement element && element.ValueKind == JsonValueKind.Null) return "JSON_NULL";
-        return "RECEIVED";
-    }
-
-    /// <summary>
-    /// Safely checks if data is valid (not null), handling JsonElement edge cases
-    /// </summary>
-    private bool HasValidData(dynamic data)
-    {
-        if (data is null) return false;
-        if (data is JsonElement element && element.ValueKind == JsonValueKind.Null) return false;
-        return true;
-    }
-
-    /// <summary>
-    /// Safely gets string representation of data, handling JsonElement edge cases
-    /// </summary>
-    private string GetDataContent(dynamic data)
-    {
-        if (data is null) return "No data";
-        if (data is JsonElement element && element.ValueKind == JsonValueKind.Null) return "JsonElement null";
-        try
-        {
-            return data.ToString();
-        }
-        catch
-        {
-            return "Error getting content";
-        }
+        return data is null ? "NULL" : "RECEIVED";
     }
 }
 

@@ -105,6 +105,10 @@
       <PrivateAssets>all</PrivateAssets>
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
     </PackageReference>
+    
+    <!-- ROS# (ROS Sharp) Libraries for ROS2 integration -->
+    <PackageReference Include="Siemens.RosSharp.RosBridgeClient.ROS2" Version="2.2.0" />
+    <PackageReference Include="Siemens.RosSharp.MessageGeneration" Version="2.2.0" />
   </ItemGroup>
 
 </Project>

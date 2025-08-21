@@ -1,20 +1,26 @@
 using System.Collections.Concurrent;
-using System.Net.WebSockets;
-using System.Text;
 using System.Text.Json;
 using Microsoft.Extensions.Logging;
+using RosSharp.RosBridgeClient;
+using RosSharp.RosBridgeClient.MessageTypes.Geometry;
+using RosSharp.RosBridgeClient.MessageTypes.Sensor;
+using RosSharp.RosBridgeClient.MessageTypes.Std;
+using RosSharp.RosBridgeClient.Protocols;
+using RosString = RosSharp.RosBridgeClient.MessageTypes.Std.String;
 
 namespace BuildingBlocks.RosConnector;
 
-// Note: This is a simplified ROS connector for demo purposes
-// In a real implementation, you would use proper ROS# libraries
+/// <summary>
+/// ROS# (ROS Sharp) based connector for ROS2 integration via rosbridge protocol
+/// Replaces the custom WebSocket implementation with official ROS# libraries
+/// </summary>
 public class RosConnectorService : IRosConnectorService, IDisposable
 {
     private readonly ILogger<RosConnectorService> _logger;
     private readonly ConcurrentDictionary<string, object> _latestMessages = new();
-    private ClientWebSocket? _webSocket;
+    private readonly ConcurrentDictionary<string, string> _subscriptions = new();
+    private RosSocket? _rosSocket;
     private string? _rosUri;
-    private CancellationTokenSource? _cancellationTokenSource;
     private bool _isConnected;
 
     public RosConnectorService(ILogger<RosConnectorService> logger)
@@ -27,44 +33,47 @@ public class RosConnectorService : IRosConnectorService, IDisposable
         try
         {
             _rosUri = rosUri;
-            _webSocket = new ClientWebSocket();
-            _cancellationTokenSource = new CancellationTokenSource();
 
-            await _webSocket.ConnectAsync(new Uri(rosUri), _cancellationTokenSource.Token);
+            // Create the WebSocket protocol using ROS# WebSocketNetProtocol
+            var protocol = new WebSocketNetProtocol(rosUri);
+
+            // Create RosSocket with Microsoft serializer (default, more performant)
+            _rosSocket = new RosSocket(protocol, RosSocket.SerializerEnum.Microsoft);
+
             _isConnected = true;
-
-            _logger.LogInformation("Connected to ROS2 at {Uri}", rosUri);
-
-            // Start listening for messages in background
-            _ = Task.Run(ListenForMessages, _cancellationTokenSource.Token);
+            _logger.LogInformation("🔗 Connected to ROS2 via ROS# at {Uri}", rosUri);
 
             return true;
         }
         catch (System.Exception ex)
         {
-            _logger.LogError(ex, "Failed to connect to ROS2 at {Uri}", rosUri);
+            _logger.LogError(ex, "❌ Failed to connect to ROS2 at {Uri}", rosUri);
             _isConnected = false;
             return false;
+        }
+        finally
+        {
+            await Task.CompletedTask; // Maintain async signature
         }
     }
 
     public Task<bool> IsConnectedAsync()
     {
-        return Task.FromResult(_isConnected && _webSocket?.State == WebSocketState.Open);
+        return Task.FromResult(_isConnected && _rosSocket != null);
     }
 
     public async Task<T?> GetLatestAsync<T>(string topicName, int timeoutMs = 1000) where T : class
     {
-        if (!_isConnected || _webSocket?.State != WebSocketState.Open)
+        if (!_isConnected || _rosSocket == null)
         {
-            _logger.LogWarning("Not connected to ROS2. Cannot get data from topic {TopicName}", topicName);
+            _logger.LogWarning("⚠️ Not connected to ROS2. Cannot get data from topic {TopicName}", topicName);
             return null;
         }
 
         try
         {
-            // Subscribe to topic
-            await SubscribeToTopicAsync(topicName);
+            // Subscribe to topic if not already subscribed
+            SubscribeToTopicIfNeeded(topicName);
 
             // Wait for data or timeout
             var startTime = DateTime.UtcNow;
@@ -72,25 +81,34 @@ public class RosConnectorService : IRosConnectorService, IDisposable
             {
                 if (_latestMessages.TryGetValue(topicName, out var message))
                 {
+                    // If caller asked for the ROS# message type, return directly
                     if (message is T typedMessage)
                     {
                         return typedMessage;
                     }
 
-                    // Try to convert from dynamic object to T
-                    var json = JsonSerializer.Serialize(message);
-                    return JsonSerializer.Deserialize<T>(json);
+                    // Otherwise try to map via JSON for caller-defined DTOs (backward compatibility)
+                    try
+                    {
+                        var json = JsonSerializer.Serialize(message);
+                        var mapped = JsonSerializer.Deserialize<T>(json);
+                        if (mapped != null) return mapped;
+                    }
+                    catch (System.Exception ex)
+                    {
+                        _logger.LogDebug(ex, "JSON mapping failed for topic {Topic} to type {Type}", topicName, typeof(T).FullName);
+                    }
                 }
 
                 await Task.Delay(50); // Check every 50ms
             }
 
-            _logger.LogWarning("Timeout waiting for data from topic {TopicName}", topicName);
+            _logger.LogWarning("⏰ Timeout waiting for data from topic {TopicName}", topicName);
             return null;
         }
         catch (System.Exception ex)
         {
-            _logger.LogError(ex, "Error getting data from topic {TopicName}", topicName);
+            _logger.LogError(ex, "❌ Error getting data from topic {TopicName}", topicName);
             return null;
         }
     }
@@ -99,132 +117,130 @@ public class RosConnectorService : IRosConnectorService, IDisposable
     {
         try
         {
-            _cancellationTokenSource?.Cancel();
-
-            if (_webSocket?.State == WebSocketState.Open)
+            if (_rosSocket != null)
             {
-                await _webSocket.CloseAsync(WebSocketCloseStatus.NormalClosure, "Disconnecting", CancellationToken.None);
-            }
-
-            _isConnected = false;
-            _logger.LogInformation("Disconnected from ROS2");
-        }
-        catch (System.Exception ex)
-        {
-            _logger.LogError(ex, "Error disconnecting from ROS2");
-        }
-    }
-
-    private async Task SubscribeToTopicAsync(string topicName)
-    {
-        if (_webSocket?.State != WebSocketState.Open) return;
-
-        try
-        {
-            var messageType = GetMessageTypeForTopic(topicName);
-            _logger.LogInformation("📡 Subscribing to topic {TopicName} with type {MessageType}", topicName, messageType);
-
-            var subscribeMessage = new
-            {
-                op = "subscribe",
-                topic = topicName,
-                type = messageType // Use correct message type for each topic
-            };
-
-            var json = JsonSerializer.Serialize(subscribeMessage);
-            var bytes = Encoding.UTF8.GetBytes(json);
-
-            await _webSocket.SendAsync(
-                new ArraySegment<byte>(bytes),
-                WebSocketMessageType.Text,
-                true,
-                CancellationToken.None);
-
-            _logger.LogInformation("✅ Sent subscription request for {TopicName}", topicName);
-        }
-        catch (System.Exception ex)
-        {
-            _logger.LogError(ex, "❌ Error subscribing to topic {TopicName}", topicName);
-        }
-    }
-
-    private string GetMessageTypeForTopic(string topicName)
-    {
-        // Map topic names to their exact ROS2 message types as confirmed by user
-        return topicName switch
-        {
-            "/aircraft/AIRCRAFT_001/gps" => "sensor_msgs/NavSatFix",
-            "/aircraft/AIRCRAFT_001/velocity" => "geometry_msgs/Twist",
-            "/aircraft/AIRCRAFT_001/attitude" => "geometry_msgs/Vector3Stamped",
-            "/aircraft/AIRCRAFT_001/altitude" => "std_msgs/Float64",
-            "/aircraft/AIRCRAFT_001/airspeed" => "std_msgs/Float64",
-            "/aircraft/AIRCRAFT_001/heading" => "std_msgs/Float64",
-            "/aircraft/AIRCRAFT_001/battery" => "sensor_msgs/BatteryState",
-            "/aircraft/AIRCRAFT_001/flight_phase" => "std_msgs/String",
-            _ => "sensor_msgs/NavSatFix" // Default fallback for GPS
-        };
-    }
-
-    private async Task ListenForMessages()
-    {
-        if (_webSocket == null || _cancellationTokenSource == null) return;
-
-        var buffer = new byte[4096];
-
-        try
-        {
-            while (_webSocket.State == WebSocketState.Open && !_cancellationTokenSource.Token.IsCancellationRequested)
-            {
-                var result = await _webSocket.ReceiveAsync(
-                    new ArraySegment<byte>(buffer),
-                    _cancellationTokenSource.Token);
-
-                if (result.MessageType == WebSocketMessageType.Text)
+                // Unsubscribe from all topics
+                foreach (var subscriptionId in _subscriptions.Values)
                 {
-                    var message = Encoding.UTF8.GetString(buffer, 0, result.Count);
-                    ProcessMessage(message);
-                }
-            }
-        }
-        catch (System.Exception ex) when (!_cancellationTokenSource.Token.IsCancellationRequested)
-        {
-            _logger.LogError(ex, "Error listening for ROS2 messages");
-            _isConnected = false;
-        }
-    }
-
-    private void ProcessMessage(string message)
-    {
-        try
-        {
-            var jsonDoc = JsonDocument.Parse(message);
-
-            if (jsonDoc.RootElement.TryGetProperty("topic", out var topicProperty) &&
-                jsonDoc.RootElement.TryGetProperty("msg", out var msgProperty))
-            {
-                var topicName = topicProperty.GetString();
-                if (!string.IsNullOrEmpty(topicName))
-                {
-                    // Store the message data
-                    var messageData = JsonSerializer.Deserialize<object>(msgProperty.GetRawText());
-                    if (messageData != null)
+                    try
                     {
-                        _latestMessages.AddOrUpdate(topicName, messageData, (key, oldValue) => messageData);
-                        _logger.LogInformation("📨 Received message from topic {TopicName}", topicName);
+                        _rosSocket.Unsubscribe(subscriptionId);
+                    }
+                    catch
+                    {
+                        /* best effort unsubscribe */
                     }
                 }
+                _subscriptions.Clear();
+                _latestMessages.Clear();
+
+                // Close the socket with a small wait time for cleanup
+                _rosSocket.Close(100);
+                _rosSocket = null;
+            }
+
+            _isConnected = false;
+            _logger.LogInformation("🔌 Disconnected from ROS2 via ROS#");
+        }
+        catch (System.Exception ex)
+        {
+            _logger.LogError(ex, "❌ Error disconnecting from ROS2");
+        }
+        finally
+        {
+            await Task.CompletedTask; // Maintain async signature
+        }
+    }
+
+    private void SubscribeToTopicIfNeeded(string topicName)
+    {
+        if (_rosSocket == null) return;
+        if (_subscriptions.ContainsKey(topicName)) return;
+
+        string? subscriptionId = null;
+
+        // Map topics to strongly-typed ROS# subscriptions using our message types
+        // Each subscription writes the latest message into _latestMessages[topic]
+        try
+        {
+            switch (topicName)
+            {
+                case "/aircraft/AIRCRAFT_001/gps":
+                    subscriptionId = _rosSocket.Subscribe<NavSatFix>(topicName, msg =>
+                    {
+                        _latestMessages[topicName] = msg;
+                        _logger.LogDebug("📨 Received GPS data from {Topic}", topicName);
+                    });
+                    break;
+
+                case "/aircraft/AIRCRAFT_001/velocity":
+                    subscriptionId = _rosSocket.Subscribe<Twist>(topicName, msg =>
+                    {
+                        _latestMessages[topicName] = msg;
+                        _logger.LogDebug("📨 Received velocity data from {Topic}", topicName);
+                    });
+                    break;
+
+                case "/aircraft/AIRCRAFT_001/attitude":
+                    subscriptionId = _rosSocket.Subscribe<Vector3Stamped>(topicName, msg =>
+                    {
+                        _latestMessages[topicName] = msg;
+                        _logger.LogDebug("📨 Received attitude data from {Topic}", topicName);
+                    });
+                    break;
+
+                case "/aircraft/AIRCRAFT_001/altitude":
+                case "/aircraft/AIRCRAFT_001/airspeed":
+                case "/aircraft/AIRCRAFT_001/heading":
+                    subscriptionId = _rosSocket.Subscribe<Float64>(topicName, msg =>
+                    {
+                        _latestMessages[topicName] = msg;
+                        _logger.LogDebug("📨 Received Float64 data from {Topic}: {Value}", topicName, msg.data);
+                    });
+                    break;
+
+                case "/aircraft/AIRCRAFT_001/battery":
+                    subscriptionId = _rosSocket.Subscribe<BatteryState>(topicName, msg =>
+                    {
+                        _latestMessages[topicName] = msg;
+                        _logger.LogDebug("📨 Received battery data from {Topic}: {Percentage}%", topicName, msg.percentage * 100);
+                    });
+                    break;
+
+                case "/aircraft/AIRCRAFT_001/flight_phase":
+                    subscriptionId = _rosSocket.Subscribe<RosString>(topicName, msg =>
+                    {
+                        _latestMessages[topicName] = msg;
+                        _logger.LogDebug("📨 Received flight phase from {Topic}: {Phase}", topicName, msg.data);
+                    });
+                    break;
+
+                default:
+                    _logger.LogWarning("⚠️ No known type mapping for topic {Topic}", topicName);
+                    return;
+            }
+
+            if (!string.IsNullOrEmpty(subscriptionId))
+            {
+                _subscriptions[topicName] = subscriptionId;
+                _logger.LogInformation("📡 Subscribed to {Topic} via ROS# (ID: {Id})", topicName, subscriptionId);
             }
         }
         catch (System.Exception ex)
         {
-            _logger.LogError(ex, "Error processing ROS2 message: {Message}", message);
+            _logger.LogError(ex, "❌ Failed to subscribe to topic {Topic}", topicName);
         }
     }
 
     public void Dispose()
     {
-        _cancellationTokenSource?.Cancel();
-        _webSocket?.Dispose();
-        _cancellationTokenSource?.Dispose();
+        try
+        {
+            DisconnectAsync().GetAwaiter().GetResult();
+        }
+        catch
+        {
+            /* ignore dispose errors */
+        }
     }
 }
