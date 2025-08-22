@@ -17,7 +17,7 @@ public class AircraftMappings : IRegister
 
         config.NewConfig<Aircraft, AircraftReadModel>()
             .Map(d => d.Id, s => NewId.NextGuid())
-            .Map(d => d.AircraftId, s => AircraftId.Of(s.Id.Value));
+            .Map(d => d.AircraftId, s => s.Id);
 
         config.NewConfig<CreateAircraftRequestDto, CreatingAircraft.V1.CreateAircraft>()
             .ConstructUsing(x => new CreatingAircraft.V1.CreateAircraft(x.Name, x.Model, x.ManufacturingYear));

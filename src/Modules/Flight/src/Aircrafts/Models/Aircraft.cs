@@ -6,7 +6,7 @@ using Features.CreatingAircraft.V1;
 using ValueObjects;
 using Events;
 
-public record Aircraft : AggregateEventSourcing<AircraftId>
+public record Aircraft : AggregateEventSourcing<Guid>
 {
     // Static aircraft properties
     public Name Name { get; private set; } = default!;
@@ -21,7 +21,7 @@ public record Aircraft : AggregateEventSourcing<AircraftId>
 
     public static Aircraft Create(AircraftId id, Name name, Model model, ManufacturingYear manufacturingYear, bool isDeleted = false)
     {
-        var aircraft = new Aircraft { Id = id, IsDeleted = isDeleted };
+        var aircraft = new Aircraft { Id = id.Value, IsDeleted = isDeleted };
 
         var @event = new AircraftCreatedDomainEvent(
             aircraft.Id,
@@ -36,10 +36,13 @@ public record Aircraft : AggregateEventSourcing<AircraftId>
         return aircraft;
     }
 
+    // Helper property to get AircraftId from Guid
+    public AircraftId AircraftId => AircraftId.Of(Id);
+
     public void UpdateTelemetry(Position position, Attitude attitude, TelemetryData telemetryData)
     {
         var @event = new AircraftTelemetryUpdatedDomainEvent(
-            Id.Value,
+            Id,
             position,
             attitude,
             telemetryData,
@@ -64,10 +67,10 @@ public record Aircraft : AggregateEventSourcing<AircraftId>
 
     private void Apply(AircraftCreatedDomainEvent @event)
     {
-        Id = AircraftId.Of(@event.Id);
-        Name = @event.Name;
-        Model = @event.Model;
-        ManufacturingYear = @event.ManufacturingYear;
+        Id = @event.Id;
+        Name = Name.Of(@event.Name);
+        Model = Model.Of(@event.Model);
+        ManufacturingYear = ManufacturingYear.Of(@event.ManufacturingYear);
         IsDeleted = @event.IsDeleted;
         Version++;
     }

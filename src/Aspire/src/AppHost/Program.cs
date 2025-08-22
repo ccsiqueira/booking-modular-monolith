@@ -193,7 +193,7 @@ var prometheus = builder.AddContainer("prometheus", "prom/prometheus")
         "--web.console.libraries=/usr/share/prometheus/console_libraries",
         "--web.console.templates=/usr/share/prometheus/consoles",
         "--web.enable-remote-write-receiver")
-    .WithEndpoint(port: 9090, targetPort: 9090, name: "http", isProxied: true, isExternal: true);
+    .WithEndpoint(port: 9292, targetPort: 9090, name: "http", isProxied: true, isExternal: true);
 
 if (builder.ExecutionContext.IsPublishMode)
 {
@@ -254,7 +254,7 @@ if (builder.ExecutionContext.IsPublishMode)
 }
 
 var elasticsearch = builder.AddElasticsearch("elasticsearch")
-    .WithImage("docker.elastic.co/elasticsearch/elasticsearch:8.17.0")
+    .WithImage("elasticsearch", "8.17.0")
     .WithEnvironment("discovery.type", "single-node")
     .WithEnvironment("cluster.name", "docker-cluster")
     .WithEnvironment("node.name", "docker-node")
@@ -292,7 +292,7 @@ if (builder.ExecutionContext.IsPublishMode)
     elasticsearch.WithLifetime(ContainerLifetime.Persistent);
 }
 
-var kibana = builder.AddContainer("kibana", "docker.elastic.co/kibana/kibana:8.17.0")
+var kibana = builder.AddContainer("kibana", "kibana", "8.17.0")
     .WithEnvironment("ELASTICSEARCH_HOSTS", "http://elasticsearch:9200")
     .WithEndpoint(port: 5601, targetPort: 5601, name: "http", isProxied: true, isExternal: true)
     .WithReference(elasticsearch)

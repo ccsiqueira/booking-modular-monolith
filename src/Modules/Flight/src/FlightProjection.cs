@@ -46,9 +46,9 @@ public class FlightProjection : IProjectionProcessor
             {
                 Id = NewId.NextGuid(),
                 AircraftId = @event.Id,
-                Name = @event.Name.Value,
-                Model = @event.Model.Value,
-                ManufacturingYear = @event.ManufacturingYear.Value,
+                Name = @event.Name,
+                Model = @event.Model,
+                ManufacturingYear = @event.ManufacturingYear,
                 IsDeleted = @event.IsDeleted,
                 // Initialize telemetry fields
                 Latitude = null,

@@ -33,11 +33,20 @@ public class FlightConfiguration : IEntityTypeConfiguration<Flights.Models.Fligh
             }
         );
 
-        builder
-            .HasOne<Aircraft>()
-            .WithMany()
-            .HasForeignKey(p => p.AircraftId)
-            .IsRequired();
+        // Configure AircraftId value object with conversion to Guid for foreign key
+        builder.Property(x => x.AircraftId)
+            .HasConversion(
+                aircraftId => aircraftId.Value,  // Convert AircraftId to Guid for database
+                dbGuid => Aircrafts.ValueObjects.AircraftId.Of(dbGuid)) // Convert Guid back to AircraftId
+            .HasColumnName("AircraftId");
+
+        // For now, remove the foreign key constraint to fix the migration issue
+        // We can add this back later when we align the types properly
+        // builder
+        //     .HasOne<Aircraft>()
+        //     .WithMany()
+        //     .HasForeignKey("AircraftId")
+        //     .IsRequired();
 
         builder
             .HasOne<Airport>()

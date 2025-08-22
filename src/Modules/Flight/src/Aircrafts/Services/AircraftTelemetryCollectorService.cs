@@ -2,10 +2,12 @@ using BuildingBlocks.EventStoreDB.Repository;
 using BuildingBlocks.RosConnector;
 using Flight.Aircrafts.Models;
 using Flight.Aircrafts.ValueObjects;
+using Flight.Data;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using MongoDB.Driver;
 using System.Text.Json;
 
 namespace Flight.Aircrafts.Services;
@@ -57,7 +59,7 @@ public class AircraftTelemetryCollectorService : BackgroundService
                 // Wait for next collection cycle (1Hz frequency)
                 await Task.Delay(TimeSpan.FromSeconds(_options.CollectionIntervalSeconds), stoppingToken);
             }
-            catch (Exception ex)
+            catch (System.Exception ex)
             {
                 _logger.LogError(ex, "Error in telemetry collection cycle");
                 await Task.Delay(TimeSpan.FromSeconds(5), stoppingToken); // Error delay
@@ -83,14 +85,24 @@ public class AircraftTelemetryCollectorService : BackgroundService
                 return;
             }
 
-            // Find or create aircraft (AIRCRAFT_001 is our simulated aircraft)
-            var aircraftId = AircraftId.Of(_options.AircraftId);
-            var aircraft = await aircraftRepository.FindAsync(aircraftId, cancellationToken);
+            // Find aircraft by ROS identifier (AIRCRAFT_001) in read database first
+            var readDbContext = scope.ServiceProvider.GetRequiredService<FlightReadDbContext>();
+            var aircraftReadModel = await readDbContext.Aircraft
+                .Find(a => a.Name == _options.RosAircraftId)
+                .FirstOrDefaultAsync(cancellationToken);
+
+            if (aircraftReadModel == null)
+            {
+                _logger.LogWarning("Aircraft with name '{RosAircraftId}' not found in read database. Aircraft must be created first.", _options.RosAircraftId);
+                return;
+            }
+
+            // Now get the aircraft from EventStore using its GUID
+            var aircraft = await aircraftRepository.Find(aircraftReadModel.AircraftId, cancellationToken);
 
             if (aircraft == null)
             {
-                _logger.LogWarning("Aircraft {AircraftId} not found in event store. Creating aircraft first.", _options.AircraftId);
-                // In a real scenario, you might want to create the aircraft here or skip telemetry update
+                _logger.LogWarning("Aircraft with GUID {AircraftGuid} not found in event store. Inconsistent state detected.", aircraftReadModel.AircraftId);
                 return;
             }
 
@@ -101,30 +113,37 @@ public class AircraftTelemetryCollectorService : BackgroundService
                 telemetryData.TelemetryData);
 
             // Save to EventStoreDB
-            await aircraftRepository.SaveAsync(aircraft, cancellationToken);
+            await aircraftRepository.Add(aircraft, cancellationToken);
 
-            _logger.LogDebug("Updated telemetry for aircraft {AircraftId}: {Position}, {Attitude}, {TelemetryData}", 
-                aircraftId.Value, telemetryData.Position, telemetryData.Attitude, telemetryData.TelemetryData);
+            _logger.LogDebug("Updated telemetry for aircraft {RosAircraftId} (GUID: {AircraftGuid}): {Position}, {Attitude}, {TelemetryData}", 
+                _options.RosAircraftId, aircraftReadModel.AircraftId, telemetryData.Position, telemetryData.Attitude, telemetryData.TelemetryData);
         }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error updating aircraft telemetry");
-        }
+                    catch (System.Exception ex)
+            {
+                _logger.LogError(ex, "Error updating aircraft telemetry");
+            }
     }
 
     private async Task<CollectedTelemetryData?> CollectTelemetryFromRosAsync()
     {
         try
         {
+            // TODO: Remove this simulation when ROS2 is available
+            if (!await _rosConnector.IsConnectedAsync())
+            {
+                _logger.LogWarning("ROS2 not connected, using simulated telemetry data");
+                return CreateSimulatedTelemetryData();
+            }
+
             // Collect data from all ROS2 topics
-            var gpsTask = _rosConnector.GetLatestAsync<dynamic>("/aircraft/AIRCRAFT_001/gps");
-            var attitudeTask = _rosConnector.GetLatestAsync<dynamic>("/aircraft/AIRCRAFT_001/attitude");
-            var velocityTask = _rosConnector.GetLatestAsync<dynamic>("/aircraft/AIRCRAFT_001/velocity");
-            var batteryTask = _rosConnector.GetLatestAsync<dynamic>("/aircraft/AIRCRAFT_001/battery");
-            var altitudeTask = _rosConnector.GetLatestAsync<dynamic>("/aircraft/AIRCRAFT_001/altitude");
-            var airspeedTask = _rosConnector.GetLatestAsync<dynamic>("/aircraft/AIRCRAFT_001/airspeed");
-            var headingTask = _rosConnector.GetLatestAsync<dynamic>("/aircraft/AIRCRAFT_001/heading");
-            var phaseTask = _rosConnector.GetLatestAsync<dynamic>("/aircraft/AIRCRAFT_001/flight_phase");
+            var gpsTask = _rosConnector.GetLatestAsync<dynamic>($"/aircraft/{_options.RosAircraftId}/gps");
+            var attitudeTask = _rosConnector.GetLatestAsync<dynamic>($"/aircraft/{_options.RosAircraftId}/attitude");
+            var velocityTask = _rosConnector.GetLatestAsync<dynamic>($"/aircraft/{_options.RosAircraftId}/velocity");
+            var batteryTask = _rosConnector.GetLatestAsync<dynamic>($"/aircraft/{_options.RosAircraftId}/battery");
+            var altitudeTask = _rosConnector.GetLatestAsync<dynamic>($"/aircraft/{_options.RosAircraftId}/altitude");
+            var airspeedTask = _rosConnector.GetLatestAsync<dynamic>($"/aircraft/{_options.RosAircraftId}/airspeed");
+            var headingTask = _rosConnector.GetLatestAsync<dynamic>($"/aircraft/{_options.RosAircraftId}/heading");
+            var phaseTask = _rosConnector.GetLatestAsync<dynamic>($"/aircraft/{_options.RosAircraftId}/flight_phase");
 
             // Wait for all data collection tasks
             await Task.WhenAll(gpsTask, attitudeTask, velocityTask, batteryTask, altitudeTask, airspeedTask, headingTask, phaseTask);
@@ -139,7 +158,7 @@ public class AircraftTelemetryCollectorService : BackgroundService
             var phaseData = await phaseTask;
 
             // Parse and validate the collected data
-            if (gpsData == null || attitudeData == null)
+            if (gpsData is null || attitudeData is null)
             {
                 _logger.LogDebug("Missing essential telemetry data (GPS or attitude)");
                 return null;
@@ -152,7 +171,7 @@ public class AircraftTelemetryCollectorService : BackgroundService
 
             return new CollectedTelemetryData(position, attitude, telemetry);
         }
-        catch (Exception ex)
+        catch (System.Exception ex)
         {
             _logger.LogError(ex, "Error collecting telemetry from ROS2");
             return null;
@@ -169,7 +188,7 @@ public class AircraftTelemetryCollectorService : BackgroundService
             var altitude = GetPropertyValue<double>(gpsData, "altitude") ?? 0.0;
 
             // Use separate altitude if available
-            if (altitudeData != null)
+            if (altitudeData is not null)
             {
                 var separateAltitude = GetPropertyValue<double>(altitudeData, "data");
                 if (separateAltitude.HasValue)
@@ -180,7 +199,7 @@ public class AircraftTelemetryCollectorService : BackgroundService
 
             return Position.Of(latitude, longitude, altitude);
         }
-        catch (Exception ex)
+        catch (System.Exception ex)
         {
             _logger.LogError(ex, "Error parsing position data");
             return Position.Empty;
@@ -192,7 +211,7 @@ public class AircraftTelemetryCollectorService : BackgroundService
         try
         {
             var vector = GetPropertyValue<dynamic>(attitudeData, "vector");
-            if (vector == null) return Attitude.Empty;
+            if (vector is null) return Attitude.Empty;
 
             var roll = GetPropertyValue<double>(vector, "x") ?? 0.0;
             var pitch = GetPropertyValue<double>(vector, "y") ?? 0.0;
@@ -200,7 +219,7 @@ public class AircraftTelemetryCollectorService : BackgroundService
 
             return Attitude.Of(roll, pitch, yaw);
         }
-        catch (Exception ex)
+        catch (System.Exception ex)
         {
             _logger.LogError(ex, "Error parsing attitude data");
             return Attitude.Empty;
@@ -221,11 +240,49 @@ public class AircraftTelemetryCollectorService : BackgroundService
 
             return TelemetryData.Of(speed, heading, fuelLevel, flightPhase);
         }
-        catch (Exception ex)
+        catch (System.Exception ex)
         {
             _logger.LogError(ex, "Error parsing telemetry data");
             return TelemetryData.Empty;
         }
+    }
+
+    private CollectedTelemetryData CreateSimulatedTelemetryData()
+    {
+        // Generate realistic simulated aircraft telemetry data
+        var random = new Random();
+        
+        // Simulate aircraft flying around New York area
+        var baseLatitude = 40.7128; // NYC latitude
+        var baseLongitude = -74.0060; // NYC longitude
+        var baseAltitude = 10000; // 10,000 meters
+        
+        // Add some realistic variation
+        var latitude = baseLatitude + (random.NextDouble() - 0.5) * 0.1; // ±0.05 degrees
+        var longitude = baseLongitude + (random.NextDouble() - 0.5) * 0.1;
+        var altitude = baseAltitude + (random.NextDouble() - 0.5) * 2000; // ±1000m variation
+        
+        var position = Position.Of(latitude, longitude, altitude);
+        
+        // Simulate aircraft attitude (slight banking and pitch variations)
+        var roll = (random.NextDouble() - 0.5) * 20; // ±10 degrees
+        var pitch = (random.NextDouble() - 0.5) * 10; // ±5 degrees  
+        var yaw = random.NextDouble() * 360; // 0-360 degrees
+        
+        var attitude = Attitude.Of(roll, pitch, yaw);
+        
+        // Simulate flight telemetry
+        var speed = 450 + (random.NextDouble() - 0.5) * 100; // 400-500 knots
+        var heading = random.NextDouble() * 360; // 0-360 degrees
+        var fuelLevel = 85 + (random.NextDouble() - 0.5) * 30; // 70-100%
+        var flightPhase = "CRUISE"; // Simulated cruise phase
+        
+        var telemetry = TelemetryData.Of(speed, heading, fuelLevel, flightPhase);
+        
+        _logger.LogDebug("Generated simulated telemetry: Pos({Lat:F4},{Lon:F4},{Alt:F0}), Att({Roll:F1},{Pitch:F1},{Yaw:F1}), Speed: {Speed:F0}kts", 
+            latitude, longitude, altitude, roll, pitch, yaw, speed);
+        
+        return new CollectedTelemetryData(position, attitude, telemetry);
     }
 
     private T? GetPropertyValue<T>(dynamic? obj, string propertyName)
@@ -247,11 +304,13 @@ public class AircraftTelemetryCollectorService : BackgroundService
                     {
                         return (T)(object)property.GetString()!;
                     }
-                    if (typeof(T) == typeof(dynamic))
+                    // For dynamic or object types, return the JsonElement as is
+                    if (typeof(T) == typeof(object))
                     {
                         return (T)(object)property;
                     }
                 }
+
                 return default;
             }
 
@@ -291,7 +350,7 @@ public class AircraftTelemetryCollectorOptions
     public const string SectionName = "AircraftTelemetryCollector";
     
     public string RosUri { get; set; } = "ws://localhost:9090";
-    public string AircraftId { get; set; } = "AIRCRAFT_001"; // Default to our simulated aircraft
+    public string RosAircraftId { get; set; } = "AIRCRAFT_001"; // Default to our simulated aircraft
     public int CollectionIntervalSeconds { get; set; } = 1; // 1Hz frequency
     public int MaxRetries { get; set; } = 3;
     public bool EnableLiveData { get; set; } = true;

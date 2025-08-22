@@ -116,7 +116,7 @@ internal class GetAircraftTelemetryHandler : IRequestHandler<GetAircraftTelemetr
         Guard.Against.Null(request, nameof(request));
 
         // Find aircraft in event store (reconstructed from events)
-        var aircraft = await _aircraftRepository.FindAsync(request.AircraftId, cancellationToken);
+        var aircraft = await _aircraftRepository.Find(request.AircraftId.Value, cancellationToken);
 
         if (aircraft == null)
         {
@@ -126,7 +126,7 @@ internal class GetAircraftTelemetryHandler : IRequestHandler<GetAircraftTelemetr
         // Map aircraft data to response DTO
         var response = new AircraftTelemetryResponse
         {
-            AircraftId = aircraft.Id.Value,
+            AircraftId = aircraft.Id,
             Name = aircraft.Name.Value,
             Model = aircraft.Model.Value,
             ManufacturingYear = aircraft.ManufacturingYear.Value,

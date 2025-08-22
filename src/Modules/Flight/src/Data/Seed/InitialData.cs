@@ -41,7 +41,7 @@ public static class InitialData
 
         Flights = new List<Flight>
         {
-            Flight.Create(FlightId.Of(new Guid("3c5c0000-97c6-fc34-2eb9-08db322230c9")), FlightNumber.Of("BD467"), AircraftId.Of(Aircrafts.First().Id.Value), AirportId.Of( Airports.First().Id), DepartureDate.Of(new DateTime(2022, 1, 31, 12, 0, 0)),
+            Flight.Create(FlightId.Of(new Guid("3c5c0000-97c6-fc34-2eb9-08db322230c9")), FlightNumber.Of("BD467"), AircraftId.Of(Aircrafts.First().Id), AirportId.Of( Airports.First().Id), DepartureDate.Of(new DateTime(2022, 1, 31, 12, 0, 0)),
                ArriveDate.Of(new DateTime(2022, 1, 31, 14, 0, 0)),
                AirportId.Of(Airports.Last().Id), DurationMinutes.Of(120m),
                 FlightDate.Of(new DateTime(2022, 1, 31, 13, 0, 0)), global::Flight.Flights.Enums.FlightStatus.Completed,
